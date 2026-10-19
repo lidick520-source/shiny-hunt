@@ -19,7 +19,7 @@ from mac_backend import Q, info, AppKit
 from notifications import Notifier
 from pp_recovery import PPProgress, RecoverySequence
 
-from pp_recovery import STEP_LABELS as RECOVERY_LABELS
+import spots
 
 
 def read_object(path):
@@ -119,7 +119,7 @@ class NativeEngine(App):
         self.worker = threading.Thread(target=work, daemon=True)
         self.worker.start()
 
-    def start_native(self):
+    def start_native(self, route_test=False):
         if self.busy:
             raise ValueError('当前任务还在运行或正在停止')
         # No preview needed any more: the worker finds and takes over the game window itself.
@@ -128,12 +128,16 @@ class NativeEngine(App):
             # A route was interrupted earlier. Position is unknown, so start it over (4 teleports to the centre).
             self.pp_progress.recovering = False; self.pp_progress.recovery_index = 0
         automatic_pp = self.pp_setting()
+        if not automatic_pp:self.pp_progress.completed = 0   # PP果定点 never goes to the hospital: no 6-round limit
         if self.pp_progress.completed >= self.pp_progress.every and not automatic_pp and not self.pp_progress.recovering:
             raise ValueError('六轮已完成：开启PP恢复，或手动补满PP后重置计数')
-        self.task_mode = self.settings.get('task_mode','fixed')
+        self.task_mode = self.settings.get('task_mode','frillish')   # frillish = 白嫖闪 (spot list), fixed = PP果定点
+        self.spot = spots.get(self.settings.get('spot', spots.DEFAULT_SPOT))
+        self.route_test = bool(route_test)
+        if route_test:self.task_mode = 'frillish'
         self.auto_run = True
-        self.pp_run = self.pp_setting()   # PP果刷闪: its own switch now (2026-10-18 UI)
-        self.channel_run = self.settings.get('channels', False)
+        self.pp_run = self.pp_setting() or self.route_test   # hospital route only in 白嫖闪 (user requirement 2026-10-19)
+        self.channel_run = self.settings.get('channels', False) and not self.route_test
         # User requirement 2026-10-18: keep the game in front for the whole run (no background input).
         self.background = False
         self.focus_regains = 0; self.assistant_since = None
@@ -395,7 +399,9 @@ class NativeEngine(App):
         backend.release_all()
 
     def pp_setting(self):
-        return bool(self.settings.get('pp_enabled', True))
+        # 2026-10-19 user requirements: 轻飘飘白嫖点 = 5 + check + escape, back to the centre every 6 rounds,
+        # walk to the shore, surf back. PP果定点 = only 5 + check + escape at a fixed spot, never the hospital.
+        return self.settings.get('task_mode', 'frillish') == 'frillish'
 
     def game_window(self):
         # For the UI: is PokeMMO open, and where (so the assistant can dock right of it). Cached 1.5 s.
@@ -421,19 +427,22 @@ class NativeEngine(App):
         self.clock = now
         recovery = self.pp_progress
         notification = read_object(BASE / 'notification.json')
-        index = min(self.recovery_step, len(RECOVERY_LABELS)-1)
+        spot = spots.get(self.settings.get('spot', spots.DEFAULT_SPOT))
+        sequence = RecoverySequence(spot)
+        index = min(self.recovery_step, len(sequence.labels)-1)
         game = self.game_window()
         return dict(type='state', busy=self.busy, running=self.busy and self.operation == 'run',
                     stopping=self.busy and self.stop_event.is_set(), mode=self.mode,
                     elapsed=int(self.elapsed), rounds=self.total_rounds, ppCompleted=recovery.completed,
                     ppEvery=recovery.every, recovering=recovery.recovering,
-                    recoveryIndex=recovery.recovery_index, recoveryTotal=len(RecoverySequence().steps),
-                    recoveryLabel=RECOVERY_LABELS[index] if recovery.recovering else '尚未开始恢复',
+                    recoveryIndex=recovery.recovery_index, recoveryTotal=len(sequence.steps),
+                    recoveryLabel=sequence.labels[index] if recovery.recovering else '尚未开始恢复',
+                    spot=spot['key'], spots=spots.summary(), routeTest=bool(getattr(self, 'route_test', False)),
                     confirmed=True, calibrated=True, previewRevision=self.preview_revision,
                     permissionStatus=self.permission_status, screenAllowed=bool(Q.CGPreflightScreenCaptureAccess()), lastReason=self.last_reason,
                     restRemaining=max(0,int(self.rest_until-now)) if self.rest_until else int(self.saved_rest),
                     channelRemaining=max(0,int(self.next_switch-self.elapsed)),
-                    taskMode=str(self.settings.get('task_mode','fixed')),
+                    taskMode=str(self.settings.get('task_mode','frillish')),
                     auto=True,
                     ppEnabled=self.pp_setting(),
                     gameFound=bool(game), gameFrame=(game or {}).get('frame', []), gamePid=int((game or {}).get('pid', 0)),
@@ -458,6 +467,8 @@ class NativeEngine(App):
             raise ValueError('请先停止任务，再修改设置或预览')
         if action == 'start':
             self.start_native()
+        elif action == 'test_route':
+            self.start_native(route_test=True)
         elif action == 'focus_game':
             game = self.game_window()
             app = AppKit.NSRunningApplication.runningApplicationWithProcessIdentifier_(game['pid']) if game else self.game_app()
@@ -474,6 +485,10 @@ class NativeEngine(App):
                 if data['task_mode'] not in ('fixed','frillish'):
                     raise ValueError('任务类型无效')
                 self.settings['task_mode'] = data['task_mode']
+            if 'spot' in data:
+                if data['spot'] not in [s['key'] for s in spots.SPOTS]:
+                    raise ValueError('点位无效')
+                self.settings['spot'] = data['spot']
             for key in ('channels','pp_enabled'):
                 if key in data:
                     if not isinstance(data[key], bool):

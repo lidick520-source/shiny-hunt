@@ -56,10 +56,24 @@ class RecoveryTests(unittest.TestCase):
 
     def test_off_spot_walks_the_route_once_then_stops(self):
         a = self.host(); a.check_verification = Mock(return_value={'text': 'Ch.1', 'lines': []})
-        a.classify_screen = Mock(return_value=('outdoor', {})); a.recover_pp = Mock()
+        a.classify_screen = Mock(return_value=('outdoor', {})); a.recover_pp = Mock(); a.pp_run = True   # 轻飘飘白嫖点
         self.assertEqual(a.recover_screen(), 'press5'); a.recover_pp.assert_called_once()
         a.recover_pp.side_effect = RuntimeError('去医院路线走完后不在刷怪点（周围水面 4%）')
         with self.assertRaisesRegex(RuntimeError, '重走过一次'): a.recover_screen()
+
+    def test_ppberry_spot_never_walks_the_hospital_route(self):
+        # PP果定点: the spot can be anywhere, so off the spot it stops instead of pressing 4.
+        for kind in ('outdoor', 'unknown', 'pc_hall'):
+            a = self.host(); a.pp_run = False; a.check_verification = Mock(return_value={'text': 'Ch.1', 'lines': []})
+            a.classify_screen = Mock(return_value=(kind, {})); a.recover_pp = Mock()
+            with self.assertRaisesRegex(RuntimeError, 'PP果定点'): a.recover_screen()
+            a.recover_pp.assert_not_called(); self.assertNotIn(0x34, [c.args[0] for c in a.press.call_args_list])
+
+    def test_ppberry_spot_is_not_judged_by_water(self):
+        a = self.host(); a.task_mode = 'fixed'; a.det = Mock(); a.det.map.return_value = False; a.det.menu.return_value = False
+        with patch.object(screen_state, 'water_ratio', return_value=.46):
+            kind, _ = a.classify_screen(Image.new('RGB', (1024, 768), (40, 80, 200)), {'text': 'Ch.1 $21,350,355', 'lines': []})
+        self.assertNotEqual(kind, 'spot')
 
     def test_same_screen_three_times_stops(self):
         a = self.host(); a.check_verification = Mock(return_value={'text': '', 'lines': []})

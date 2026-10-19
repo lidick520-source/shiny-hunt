@@ -7,6 +7,7 @@ from notifications import Notifier
 from pp_recovery import PPProgress,RecoverySequence
 from snapshot_policy import save as save_snapshot,trim_log
 import screen_state
+import spots
 BASE=pathlib.Path(__file__).resolve().parent
 LOG_FILE=BASE/'run.log'  # tests redirect this so they never write the real run log
 INCIDENT_DIR=BASE/'diagnostics'/'incidents'   # tests redirect this, like LOG_FILE
@@ -69,7 +70,7 @@ PVP_ICON=(837,740,16,16)               # 4th bottom-right icon (pokeball)
 def channel_interval():
  # User 2026-10-18: change channel at a random moment, every 40-50 minutes (not a fixed 50).
  return random.randint(2400,3000)
-NO_RECOVERY=('闪光','验证','手动停止','F8','已关闭','缺少屏幕录制','尚未授予','窗口为','原生输入','六次遭遇完成','轻飘飘全自动','游戏已关闭','切不回前台','没找到 PokeMMO','自动恢复')
+NO_RECOVERY=('闪光','验证','手动停止','F8','已关闭','缺少屏幕录制','尚未授予','窗口为','原生输入','六次遭遇完成','轻飘飘全自动','未确认是','路线测试','游戏已关闭','切不回前台','没找到 PokeMMO','自动恢复')
 def CHANNEL_ROW(n):return (446,338+27*(n-1)-9,132,18)   # 频道1 y=338, step 27 (real screenshots)
 CHANNEL_WINDOW_BOX=(424,322,600,488)   # checkbox + 变更/取消, cut from the real screenshot (assets/channel_window.png)
 def channel_window_score(im):
@@ -341,9 +342,12 @@ class App:
     for old in folder.glob('*.png'):old.unlink()
    self.capture().save(folder/f'{ix+1:02d}-{label}.png',compress_level=1)
   except Exception:pass
+ def current_spot(self):
+  return getattr(self,'spot',None) or spots.get(spots.DEFAULT_SPOT)
  def recover_pp(self):
-  self.mode='补充PP';self.say('PP 已用 6 轮，开始去医院补满 PP')
-  RecoverySequence().execute(self,self.pp_progress,auto_finish=False)
+  spot=self.current_spot()
+  self.mode='补充PP';self.say(f'PP 已用 6 轮，开始去医院补满 PP（{spot["name"]}）')
+  RecoverySequence(spot).execute(self,self.pp_progress,auto_finish=False)
   # User choice: after the route, continue hunting automatically.
   # Only stop when the screen is clearly still in a battle/menu; a wrong position
   # is caught by the next round's own encounter timeout.
@@ -360,7 +364,7 @@ class App:
   self.diagnostic(check,data,'pp-return')
   if not on_map and not blocked:
    kind,_=self.classify_screen(check,data)
-   if kind=='outdoor':
+   if kind=='outdoor' and spot.get('spot_water') is not None:
     # Route ended somewhere without the water around: not the hunting spot. Self-recovery takes it from here.
     raise RuntimeError(f'去医院路线走完后不在刷怪点（周围水面 {screen_state.water_ratio(check):.0%}）')
   if '冲浪' in data.get('text',''):
@@ -379,6 +383,7 @@ class App:
   # Self-recovery instead of stopping, but never after a protection stop (shiny / captcha) or a user stop.
   # Only game situations (RuntimeError) are recovered; a program error must stop at once.
   if not isinstance(e,RuntimeError):return False
+  if getattr(self,'route_test',False):return False   # a route test must show where the route goes wrong
   msg=str(e)
   if self.stop_event.is_set() or getattr(self,'protection',None):return False
   if any(word in msg for word in NO_RECOVERY):return False
@@ -405,7 +410,9 @@ class App:
  def classify_screen(self,im,data):
   try:
    # The spot is on the water: other players often cover the learned map patches, the water is still there.
-   on_spot=(bool(self.det.map(im)) or screen_state.water_ratio(im)>=screen_state.SPOT_WATER) and not self.battle_evidence(data)
+   need=self.current_spot().get('spot_water')
+   water=getattr(self,'task_mode','frillish')=='frillish' and need is not None and screen_state.water_ratio(im)>=need
+   on_spot=(bool(self.det.map(im)) or water) and not self.battle_evidence(data)
    return screen_state.classify(im,data,on_spot=on_spot,menu=bool(escape_region(data)) or bool(self.det.menu(im)),
                                 channel_window=channel_window_score(im),dialog_white=dialog_bubble_white(im))
   except Exception:
@@ -439,6 +446,9 @@ class App:
    elif kind=='pvp_menu':self.say('  再点一次精灵球图标收起菜单');self.click(PVP_ICON);self.wait(.8)
    elif kind=='loading':self.wait(1.5)
    elif kind=='unknown' and attempt<=3:self.wait(1.5)
+   elif kind=='pc_hall' and not self.pp_run:
+    if first:return 'start'
+    raise RuntimeError('自动恢复：PP果定点模式下人在宝可梦中心里，这个模式不会自己走回点位，已停止')
    elif kind=='pc_hall':
     if first:return 'start'
     self.say('  在宝可梦中心里：按住S走出门')
@@ -447,6 +457,9 @@ class App:
     self.wait(1.5)
    else:   # outdoor somewhere else, or still unrecognised: the hospital route is the known way back
     if first:return 'start'
+    if not self.pp_run:
+     if kind=='unknown' or kind=='outdoor':
+      raise RuntimeError(f'自动恢复：PP果定点模式下不在原来的点位（{screen_state.LABELS[kind]}），这个模式不会自己走回去，已停止')
     if route_done:raise RuntimeError('自动恢复：已经重走过一次去医院的路线，还是没回到刷怪点，已停止')
     route_done=True;self.say('  不在刷怪点：按4回宝可梦中心，从头走一遍路线（顺便补满PP）')
     self.pp_progress.recovering=False;self.pp_progress.recovery_index=0
@@ -550,7 +563,11 @@ class App:
      elif resume=='press5':
       self.press(0x35);self.say('已回到刷怪点，发送5继续刷');state='battle';key_sent=time.monotonic();deadline=time.monotonic()+55
      else:
-      if self.saved_rest:self.rest_until=time.monotonic()+self.saved_rest;self.saved_rest=0
+      if getattr(self,'route_test',False):
+       # 「测试回院路线」: walk the hospital route once for a new spot, screenshot every step, then stop.
+       self.pp_progress.recovering=False;self.pp_progress.recovery_index=0
+       self.recover_pp();self.say('路线测试完成：去医院、回点位都走完了，每一步截图在 diagnostics/hospital-route');self.halt('路线测试完成')
+      elif self.saved_rest:self.rest_until=time.monotonic()+self.saved_rest;self.saved_rest=0
       elif self.pp_progress.recovering or (self.pp_run and self.pp_progress.completed>=self.pp_progress.every):
        self.say('本次会话存在未完成 PP 恢复，从记录的步骤继续')
        self.recover_pp()
@@ -584,13 +601,14 @@ class App:
        elif not button and on_map and not self.battle_evidence(data) and key_retry and time.monotonic()-key_sent>12:
         raise RuntimeError('重试后仍是地图，游戏未触发技能；请检查5的绑定及输入权限。诊断截图已保存')
        if button:
-        if getattr(self,'task_mode','fixed')=='frillish' and frillish_count(data.get('text',''))<3:
-         self.diagnostic(im,data,'protected');raise RuntimeError('轻飘飘全自动：未确认轻飘飘群，已停止，未点击逃跑')
+        spot=self.current_spot()
+        if getattr(self,'task_mode','fixed')=='frillish' and spots.target_count(data.get('text',''),spot)<spot['min_count']:
+         self.diagnostic(im,data,'protected');raise RuntimeError(f'白嫖闪：未确认是{"/".join(spot["targets"])}群，已停止，未点击逃跑')
         check_started=time.monotonic();guard=self.original_flash_guard(im,button)
         if guard['matched']:
          self.diagnostic(im,{**data,'original_flash_rule':guard},'original-flash-check');raise RuntimeError('原规则命中闪光：指定OCR区域文字 + 逃跑图像；已停止')
         if guard['escape_image_hit']:
-         self.say('原闪光规则未命中；'+('已确认轻飘飘群' if getattr(self,'task_mode','fixed')=='frillish' else '固定点位通用模式'))
+         self.say('原闪光规则未命中；'+(f'已确认{"/".join(self.current_spot()["targets"])}群' if getattr(self,'task_mode','fixed')=='frillish' else 'PP果定点'))
          fresh=self.capture();latest=self.check_verification(fresh);guard=self.original_flash_guard(fresh,button)
          if guard['matched']:
           self.diagnostic(fresh,{**latest,'original_flash_rule':guard},'before-escape');raise RuntimeError('点击前原闪光规则命中，已停止')
@@ -638,7 +656,9 @@ class App:
          if not escape_region(fresh):raise RuntimeError('重试前无法再次确认逃跑菜单，已停止')
          self.click(escape_button_area(escape_region(fresh)));escape_retries+=1;last_escape_click=time.monotonic();self.say(f'逃跑菜单仍在，已复查并发送重试点击（{escape_retries}/2），等待游戏确认')
        if stable>=2:
-        rounds+=1;self.total_rounds+=1;due=self.pp_progress.encounter_done();self.say(f'第{rounds}轮完成；PP {self.pp_progress.completed}/6')
+        rounds+=1;self.total_rounds+=1
+        if self.pp_run:due=self.pp_progress.encounter_done();self.say(f'第{rounds}轮完成；PP {self.pp_progress.completed}/6')
+        else:due=False;self.say(f'第{rounds}轮完成（PP果定点：不回院，一直刷）')
         stable=0
         ui=self.blocking_ui(im,data)
         if ui:raise RuntimeError(f'逃跑后画面被「{screen_state.LABELS[ui]}」挡住了，先处理再继续')

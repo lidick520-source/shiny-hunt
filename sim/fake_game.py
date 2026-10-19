@@ -26,7 +26,7 @@ class FakeGame:
         self.held = {}; self.log = []; self.problems = []; self.clicks = []
         self.battle = None; self.escapes = 0; self.heals = 0; self.surfs = 0
         self.focus_depth = 0; self.dropped_space = False; self.dropped_surf = False; self.channel = 2; self.switches = 0
-        self.front = True; self.steals = 0; self.next_steal = time.monotonic() + 20; self.lost_inputs = 0; self.popped = set()
+        self.front = True; self.teleports = 0; self.steals = 0; self.next_steal = time.monotonic() + 20; self.lost_inputs = 0; self.popped = set()
 
     # ---- what the assistant sees
     def foreground(self):
@@ -99,7 +99,7 @@ class FakeGame:
                 self.problem(f'在「{s}」状态按了5')
         elif key == K4:
             if s in ('map', 'street1', 'street2', 'street3', 'shore', 'short'):
-                self.note('按4 → 瞬移回宝可梦中心')
+                self.note('按4 → 瞬移回宝可梦中心'); self.teleports += 1
                 self._schedule([(0.0, 'teleport', 'hosp_01_leaving_map'), (1.0, 'teleport', 'hosp_02_arrive'),
                                 (1.2, 'pc_idle', 'hosp_03_arrived')])
             else:

@@ -21,6 +21,7 @@ SCENARIOS = {
     'blind_list':  dict(rounds=4,  faults=('blind_list',), channels=True, expect='run', note='20:19 实测：频道列表展开了但一行字都没读到；按量好的行位置选'),
     'focus_steal': dict(rounds=10, faults=('focus_steal',), expect='run', note='运行中你点了别的程序 4 次：自动把游戏切回前台继续刷，不停止'),
     'interruptions': dict(rounds=12, faults=('interruptions',), expect='run', note='弹出锦标赛窗口、冒出是/否提示、去医院后停在街上：都自己恢复，不停止'),
+    'ppberry':     dict(rounds=14, faults=(), mode='fixed', expect='run', note='PP果定点：只按5和逃跑，14轮不回院、不按4、不走路'),
     'short_walk':  dict(rounds=8,  faults=('short_walk',), expect='run', note='最后一段没走到岸边（11:50 的真实故障）：补按一下D自己贴到岸边，继续刷'),
 }
 
@@ -82,7 +83,7 @@ def run(name, live):
         engine.notifier = Silent()                       # never send a real notification
         engine.native_call = game.native
         engine.background = False; engine.focus_regains = 0; engine.assistant_since = None   # as start_native: game kept in front
-        engine.task_mode = 'frillish'; engine.pp_run = True; engine.channel_run = cfg.get('channels', False); engine.next_switch = 0 if cfg.get('channels') else 3000; engine.auto_run = True
+        engine.task_mode = cfg.get('mode', 'frillish'); engine.pp_run = engine.task_mode == 'frillish'; engine.channel_run = cfg.get('channels', False); engine.next_switch = 0 if cfg.get('channels') else 3000; engine.auto_run = True
         engine.stop_event.clear()
         def go():
             engine.attach_game(); engine.run()      # exactly what 开始 does: find the game itself, no preview
@@ -101,7 +102,10 @@ def run(name, live):
         ok = not game.problems and game.focus_depth == 0 and inside
         if cfg['expect'] == 'run':
             extra = 1 if 'yes_no' in game.popped else 0          # the injected 是/否 prompt answered 是 = one extra surf
-            ok = ok and engine.total_rounds >= cfg['rounds'] and game.heals >= cfg['rounds'] // 6 and game.surfs == game.heals + extra
+            if cfg.get('mode') == 'fixed':
+                ok = ok and engine.total_rounds >= cfg['rounds'] and game.heals == 0 and game.surfs == 0 and game.teleports == 0
+            else:
+                ok = ok and engine.total_rounds >= cfg['rounds'] and game.heals >= cfg['rounds'] // 6 and game.surfs == game.heals + extra
             if 'drop_space_after_heal' in cfg['faults']: ok = ok and '补按空格' in log
             if 'focus_steal' in cfg['faults']: ok = ok and game.steals >= 3 and '已自动切回前台' in log
             if 'interruptions' in cfg['faults']: ok = ok and len(game.popped) == 3 and log.count('开始自动恢复') >= 2

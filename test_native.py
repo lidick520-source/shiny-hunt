@@ -136,12 +136,13 @@ class NativeTests(unittest.TestCase):
             self.assertEqual(state['taskMode'],'fixed')
             self.assertTrue(state['auto']);self.assertFalse(state['ppEnabled'])
 
-    def test_pp_switch_is_independent_and_on_by_default(self):
+    def test_mode_decides_the_hospital_route(self):
+        # 2026-10-19 requirements: 轻飘飘白嫖点 goes back to the centre; PP果定点 never does.
         with tempfile.TemporaryDirectory() as d:
             engine=self.engine(Path(d))
-            self.assertTrue(engine.pp_setting())
-            engine.settings['pp_enabled']=False;engine.settings['task_mode']='frillish'
-            self.assertFalse(engine.pp_setting())                               # 轻飘飘群 no longer forces it on
+            self.assertTrue(engine.pp_setting())                                # default: 轻飘飘白嫖点
+            engine.settings['task_mode']='fixed'
+            self.assertFalse(engine.pp_setting())
 
     def test_snapshot_reports_game_window_for_docking(self):
         with tempfile.TemporaryDirectory() as d:
@@ -155,13 +156,13 @@ class NativeTests(unittest.TestCase):
         self.assertEqual(app.frillish_count('轻飘飘 轻飘飘 轻飘期 轻飘飘 轻飘飘'),5)
         self.assertEqual(app.frillish_count('索罗亚 赫拉克罗斯'),0)
 
-    def test_six_rounds_without_recovery_does_not_start(self):
+    def test_ppberry_mode_has_no_six_round_limit(self):
         with tempfile.TemporaryDirectory() as d:
-            engine=self.engine(Path(d));engine.calibrated=(1,(0,0,1024,768));engine.confirmed=True
-            engine.pp_progress.completed=6;engine.settings['pp_enabled']=False;engine.settings['task_mode']='frillish'   # PP果刷闪 off
-            with patch.object(engine,'require_permissions'),self.assertRaisesRegex(ValueError,'六轮'):
-                engine.start_native()
-            self.assertIsNone(engine.worker)
+            engine=self.engine(Path(d));engine.settings['task_mode']='fixed';engine.pp_progress.completed=6;seen=[]
+            with patch.object(engine,'require_permissions'),patch.object(engine,'attach_game',side_effect=lambda:seen.append('attach')), \
+                 patch.object(engine,'run',side_effect=lambda:seen.append('run')):
+                engine.start_native();engine.worker.join(2)
+            self.assertEqual(seen,['attach','run']);self.assertFalse(engine.pp_run);self.assertEqual(engine.pp_progress.completed,0)
 
     def test_shutdown_releases_and_signals_worker(self):
         with tempfile.TemporaryDirectory() as d:

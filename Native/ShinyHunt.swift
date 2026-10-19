@@ -19,6 +19,12 @@ struct EngineState: Decodable {
     var notificationEnabled = false, notificationConfigured = false
     var gameFound = false, gameFrame: [Double] = [], gamePid = 0
     var protection = "", recoveriesTotal = 0, focusRegains = 0
+    var spot = "fanba", spots: [SpotInfo] = [], routeTest = false
+}
+struct SpotInfo: Decodable, Hashable {
+    var key: String
+    var name: String
+    var verified: Bool
 }
 struct LogEntry: Identifiable {
     let id = UUID()
@@ -174,6 +180,7 @@ final class NativeInputDriver {
     @Published var pending = false
     @Published var showSettings = false
     @Published var showLogs = false
+    @Published var shinyAlert = false
     private var dockedFor = ""
     let root: URL
     private var process: Process?
@@ -250,7 +257,9 @@ final class NativeInputDriver {
             switch type {
             case "state":
                 if let next = try? JSONDecoder().decode(EngineState.self, from: line) {
+                    let before = state.protection
                     state = next; connected = true
+                    if next.protection == "闪光" && before != "闪光" { alertShiny() }
                     dockIfNeeded()
                     if next.previewRevision != previewRevision {
                         previewRevision = next.previewRevision
@@ -288,6 +297,16 @@ final class NativeInputDriver {
         try? input.write(contentsOf: data)
     }
     func set(_ key: String, _ value: Bool) { send("settings", [key: value]) }
+
+    // 出闪提醒 on this Mac (2026-10-19): sound, bounce the Dock icon, bring the assistant forward, pop up.
+    func alertShiny() {
+        NSApp.requestUserAttention(.criticalRequest)
+        NSApp.activate(ignoringOtherApps: true)
+        for i in 0..<6 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + Double(i) * 1.3) { NSSound(named: "Glass")?.play() }
+        }
+        shinyAlert = true
+    }
 
     // Keep the assistant beside the game on the same screen: dock 8 pt right of the game window.
     // If there is no room on the right (and no task is running), move the game to the left edge first.
@@ -424,6 +443,7 @@ extension Controller {
     var headline: String {
         if !connected { return "正在连接…" }
         if state.stopping { return "正在停止…" }
+        if state.busy && state.routeTest { return "测试回院路线" }
         if state.busy {
             switch state.mode {
             case "补充PP": return "去医院补 PP"
@@ -445,9 +465,10 @@ extension Controller {
             return logs.last?.message.trimmingCharacters(in: .whitespaces) ?? state.mode
         }
         if stoppedWithReason { return state.lastReason }
-        return state.gameFound
-            ? "站在刷怪点后点开始。游戏会一直保持在前台，弹窗、走偏会自己处理。"
-            : "先打开 PokeMMO（窗口模式，内容区 1024×768），这里会自动找到它。"
+        if !state.gameFound { return "先打开 PokeMMO（窗口模式，内容区 1024×768），这里会自动找到它。" }
+        if state.taskMode == "fixed" { return "站在你的固定点位后点开始：只按 5、查闪光、逃跑，一直循环。" }
+        let name = state.spots.first(where: { $0.key == state.spot })?.name ?? "刷怪点"
+        return "站在「\(name)」的刷怪点后点开始。游戏会一直保持在前台，弹窗、走偏会自己处理。"
     }
     // Important lines from the engine log, newest first, grouped like the design's activity list.
     var feed: [FeedItem] {
@@ -509,6 +530,9 @@ struct MainView: View {
         .foregroundStyle(Color.ink)
         .sheet(isPresented: $c.showSettings) { SettingsSheet().environmentObject(c) }
         .sheet(isPresented: $c.showLogs) { LogsSheet().environmentObject(c) }
+        .alert("发现闪光！", isPresented: $c.shinyAlert) {
+            Button("知道了") {}
+        } message: { Text("已停止，没有逃跑。去游戏里手动捕捉，抓完回到点位再点「继续刷」。") }
         .alert("需要处理", isPresented: Binding(get: { c.error != nil }, set: { if !$0 { c.error = nil } })) {
             Button("知道了") { c.error = nil }
         } message: { Text(c.error ?? "") }
@@ -654,7 +678,7 @@ struct Metrics: View {
                 Tile(title: "已遇到", value: "\(c.state.rounds) 轮")
             }
             GridRow {
-                Tile(title: "PP", value: "\(c.state.ppCompleted) / \(c.state.ppEvery)")
+                Tile(title: "PP", value: c.state.taskMode == "fixed" ? "PP果自补" : "\(c.state.ppCompleted) / \(c.state.ppEvery)")
                 if c.shinyFound {
                     Tile(title: "自动恢复", value: "\(c.state.recoveriesTotal) 次")
                 } else {
@@ -684,22 +708,44 @@ struct FeatureRow: View {
 struct Features: View {
     @EnvironmentObject var c: Controller
     private var canChange: Bool { !c.state.busy && c.connected && !c.pending }
+    private var spotName: String { c.state.spots.first(where: { $0.key == c.state.spot })?.name ?? "帆巴市 · 轻飘飘" }
     var body: some View {
         if c.state.busy {
             HStack(spacing: 6) {
-                if c.state.taskMode == "frillish" { chip("轻飘飘群") }
-                if c.state.ppEnabled { chip("PP果刷闪") }
-                if c.state.channels { chip("随机换频道 40–50 分") }
+                chip(c.state.taskMode == "fixed" ? "PP果定点" : "白嫖闪 · " + spotName)
+                if c.state.notificationEnabled { chip("出闪提醒") }
+                if c.state.channels && !c.state.routeTest { chip("换频道 40–50 分") }
                 Spacer(minLength: 0)
             }
         } else {
             Panel(padding: 14) {
                 VStack(alignment: .leading, spacing: 12) {
-                    Text("功能").font(.system(size: 14, weight: .bold))
-                    FeatureRow(title: "轻飘飘群", detail: "确认是轻飘飘群、不是闪光，才逃跑",
-                               isOn: c.state.taskMode == "frillish", enabled: canChange) { c.send("settings", ["task_mode": $0 ? "frillish" : "fixed"]) }
-                    FeatureRow(title: "PP果刷闪", detail: "每 6 轮按 4 回中心补满 PP，再冲浪回来",
-                               isOn: c.state.ppEnabled, enabled: canChange) { c.set("pp_enabled", $0) }
+                    Text("模式").font(.system(size: 14, weight: .bold))
+                    Picker("模式", selection: Binding(get: { c.state.taskMode }, set: { c.send("settings", ["task_mode": $0]) })) {
+                        Text("白嫖闪").tag("frillish")
+                        Text("PP果定点").tag("fixed")
+                    }
+                    .pickerStyle(.segmented).labelsHidden().disabled(!canChange)
+                    if c.state.taskMode == "fixed" {
+                        Text("站在固定点位，只按 5 → 查闪光 → 逃跑，一直循环；不回院、不走路。")
+                            .font(.system(size: 12)).foregroundStyle(Color.inkMuted).fixedSize(horizontal: false, vertical: true)
+                    } else {
+                        Picker("点位", selection: Binding(get: { c.state.spot }, set: { c.send("settings", ["spot": $0]) })) {
+                            ForEach(c.state.spots, id: \.key) { spot in
+                                Text(spot.verified ? spot.name : spot.name + "（待实测）").tag(spot.key)
+                            }
+                        }
+                        .disabled(!canChange)
+                        Text("每 6 轮按 4 回院补 PP，走回点位后冲浪继续刷。")
+                            .font(.system(size: 12)).foregroundStyle(Color.inkMuted).fixedSize(horizontal: false, vertical: true)
+                        Button("测试回院路线（走一遍就停，每步截图）") { c.send("test_route") }
+                            .buttonStyle(.link).font(.system(size: 12))
+                            .disabled(!canChange || !c.state.gameFound)
+                    }
+                    Divider()
+                    Text("通用").font(.system(size: 14, weight: .bold))
+                    FeatureRow(title: "出闪提醒", detail: "发现闪光立即停止；喵提醒通知手机，电脑上响铃弹窗",
+                               isOn: c.state.notificationEnabled, enabled: canChange) { c.send("notification", ["enabled": $0]) }
                     FeatureRow(title: "随机换频道", detail: "每 40–50 分钟随机换一次，换完休息 3–8 分钟",
                                isOn: c.state.channels, enabled: canChange) { c.set("channels", $0) }
                 }
