@@ -1,0 +1,25 @@
+# 凭据：绝不提交
+notification.json
+
+# 本机运行时
+settings.json
+.runtime-python
+.venv/
+.build/
+.cache/
+Mac刷闪助手.app/
+run.log
+启动诊断.log
+preview.png
+preview.tmp.png
+diagnostics/
+snapshots/
+permission-status.txt
+__pycache__/
+*.pyc
+.DS_Store
+
+# 模拟器输出
+sim/sim_*.log
+sim/sim_report*.json
+sim/ocr_dump.log

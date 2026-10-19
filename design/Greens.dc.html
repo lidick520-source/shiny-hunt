@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>绿色候选</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Noto+Sans+SC:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1280px; height: 420px; box-sizing: border-box; padding: 36px; background: #F3F3EF; font-family: 'PingFang SC', 'Noto Sans SC', system-ui, sans-serif; color: #1B1E1D; display: flex; flex-direction: column; gap: 22px">
+<div style="font-size: 22px; font-weight: 700">选一个绿色：告诉我字母就行</div>
+<div style="display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 20px; flex-grow: 1">
+
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="font-size: 28px; font-weight: 700">A</div>
+<div style="height: 90px; border-radius: 18px; background: #34C759"></div>
+<button type="button" style="height: 50px; border-radius: 12px; border: none; background: #34C759; color: #FFFFFF; font-size: 17px; font-weight: 700; font-family: inherit">开始刷闪</button>
+<div style="font-size: 13px; color: #4A504D; line-height: 1.5">苹果系统绿（浅色模式）<br>#34C759（上一版用的）</div>
+</div>
+
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="font-size: 28px; font-weight: 700">B</div>
+<div style="height: 90px; border-radius: 18px; background: #30D158"></div>
+<button type="button" style="height: 50px; border-radius: 12px; border: none; background: #30D158; color: #FFFFFF; font-size: 17px; font-weight: 700; font-family: inherit">开始刷闪</button>
+<div style="font-size: 13px; color: #4A504D; line-height: 1.5">苹果系统绿（深色模式，更亮）<br>#30D158</div>
+</div>
+
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="font-size: 28px; font-weight: 700">C</div>
+<div style="height: 90px; border-radius: 18px; background: linear-gradient(180deg, #6BF178 0%, #10C23C 100%)"></div>
+<button type="button" style="height: 50px; border-radius: 12px; border: none; background: linear-gradient(180deg, #6BF178 0%, #10C23C 100%); color: #FFFFFF; font-size: 17px; font-weight: 700; font-family: inherit">开始刷闪</button>
+<div style="font-size: 13px; color: #4A504D; line-height: 1.5">信息 / FaceTime 图标那种<br>上亮下深的渐变绿</div>
+</div>
+
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 16px; padding: 20px; display: flex; flex-direction: column; gap: 14px">
+<div style="font-size: 28px; font-weight: 700">D</div>
+<div style="height: 90px; border-radius: 18px; background: #00E556"></div>
+<button type="button" style="height: 50px; border-radius: 12px; border: none; background: #00E556; color: #06240F; font-size: 17px; font-weight: 700; font-family: inherit">开始刷闪</button>
+<div style="font-size: 13px; color: #4A504D; line-height: 1.5">更亮更饱和的苹果风荧光绿<br>#00E556</div>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1280,"height":420}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

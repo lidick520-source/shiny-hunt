@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>助手侧栏 发现闪光</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&amp;family=Noto+Sans+SC:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 400px; height: 796px; box-sizing: border-box; background: #F3F3EF; font-family: 'PingFang SC', 'Noto Sans SC', system-ui, sans-serif; color: #1B1E1D; display: flex; flex-direction: column">
+
+<header style="height: 52px; flex-shrink: 0; box-sizing: border-box; padding: 0 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #E2E2DC; background: #FAFAF8">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#62D141" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.4 5.6L20 11l-5.6 2.4L12 19l-2.4-5.6L4 11l5.6-2.4z"></path></svg>
+<span style="font-size: 15px; font-weight: 700">刷闪助手</span>
+<span style="display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px; background: #EEEEE9; color: #33393A; font-size: 12px; font-weight: 500"><span style="width: 7px; height: 7px; border-radius: 50%; background: #6E7471"></span>已停止，不再按任何键</span>
+</header>
+
+<div style="flex-grow: 1; min-height: 0; padding: 12px; display: flex; flex-direction: column; gap: 10px">
+
+<div style="background: #FFF7E8; border: 2px solid #C98A12; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+<div style="display: flex; align-items: center; gap: 12px">
+<div style="width: 44px; height: 44px; border-radius: 12px; background: #C98A12; display: flex; align-items: center; justify-content: center; flex-shrink: 0">
+<svg width="24" height="24" viewBox="0 0 24 24" fill="#FFFFFF" aria-hidden="true"><path d="M12 2.5l2.7 6.3 6.8.6-5.2 4.5 1.6 6.6L12 17l-5.9 3.5 1.6-6.6L2.5 9.4l6.8-.6z"></path></svg>
+</div>
+<div style="display: flex; flex-direction: column; gap: 2px">
+<span style="font-size: 24px; font-weight: 700; color: #5A3A00">发现闪光！</span>
+<span style="font-size: 12px; color: #5A3A00">第 128 轮 · 20:41:07 · 没有逃跑</span>
+</div>
+</div>
+<div style="font-size: 13px; line-height: 1.6; color: #3E2A00">去游戏里手动捕捉。抓完回到刷怪点，点「继续刷」接着计数。</div>
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<button type="button" style="height: 46px; border-radius: 11px; border: none; background: #62D141; color: #06240F; font-size: 15px; font-weight: 700; font-family: inherit; cursor: pointer">切到游戏</button>
+<button type="button" style="height: 46px; border-radius: 11px; border: 1px solid #CFCFC6; background: #FFFFFF; color: #1B1E1D; font-size: 15px; font-weight: 600; font-family: inherit; cursor: pointer">继续刷</button>
+</div>
+<a href="#" style="font-size: 13px; color: #1E7A3A; text-align: center">看当时的截图</a>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 12px; padding: 11px 13px; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 11px; color: #5C625F">运行时长</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 19px; font-weight: 600">01:36:12</span></div>
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 12px; padding: 11px 13px; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 11px; color: #5C625F">已遇到</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 19px; font-weight: 600">128 <span style="font-size: 12px; color: #5C625F; font-family: inherit">轮</span></span></div>
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 12px; padding: 11px 13px; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 11px; color: #5C625F">PP</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 19px; font-weight: 600">2 / 6</span></div>
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 12px; padding: 11px 13px; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 11px; color: #5C625F">自动恢复</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 19px; font-weight: 600">3 <span style="font-size: 12px; color: #5C625F; font-family: inherit">次</span></span></div>
+</div>
+
+<div style="flex-grow: 1; min-height: 0; background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center"><span style="font-size: 14px; font-weight: 700">动态</span><span style="flex-grow: 1"></span><a href="#" style="font-size: 12px; color: #1E7A3A; text-decoration: none">完整日志</a></div>
+<div style="display: flex; flex-direction: column">
+<div style="display: flex; gap: 9px; padding: 9px; margin-bottom: 3px; border-radius: 10px; background: #FFF7E8"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #5A3A00; width: 36px; flex-shrink: 0; padding-top: 2px">20:41</span><div style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 13px; font-weight: 700; color: #5A3A00">命中闪光规则，立即停止</span><span style="font-size: 12px; color: #5A3A00">闪光永远不会被自动恢复跳过</span></div></div>
+<div style="display: flex; gap: 9px; padding: 8px 0; border-bottom: 1px solid #F0F0EC"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #5C625F; width: 36px; flex-shrink: 0; padding-top: 2px">20:40</span><span style="font-size: 13px">第 128 轮：进入战斗</span></div>
+<div style="display: flex; gap: 9px; padding: 8px 0; border-bottom: 1px solid #F0F0EC"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #5C625F; width: 36px; flex-shrink: 0; padding-top: 2px">20:40</span><span style="font-size: 13px">第 127 轮：不是闪光，已逃跑</span></div>
+<div style="display: flex; gap: 9px; padding: 8px 0"><span style="font-family: 'JetBrains Mono', monospace; font-size: 11px; color: #5C625F; width: 36px; flex-shrink: 0; padding-top: 2px">20:39</span><span style="font-size: 13px">第 126 轮：不是闪光，已逃跑</span></div>
+</div>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":796}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

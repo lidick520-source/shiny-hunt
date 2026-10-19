@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>助手侧栏 待机</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@500;600&amp;family=Noto+Sans+SC:wght@400;500;700&amp;display=swap" rel="stylesheet">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 400px; height: 796px; box-sizing: border-box; background: #F3F3EF; font-family: 'PingFang SC', 'Noto Sans SC', system-ui, sans-serif; color: #1B1E1D; display: flex; flex-direction: column">
+
+<header style="height: 52px; flex-shrink: 0; box-sizing: border-box; padding: 0 10px 0 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #E2E2DC; background: #FAFAF8">
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#62D141" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l2.4 5.6L20 11l-5.6 2.4L12 19l-2.4-5.6L4 11l5.6-2.4z"></path></svg>
+<span style="font-size: 15px; font-weight: 700">刷闪助手</span>
+<span style="display: flex; align-items: center; gap: 6px; padding: 4px 9px; border-radius: 999px; background: #E8F8E1; color: #1B6B32; font-size: 12px; font-weight: 500"><span style="width: 7px; height: 7px; border-radius: 50%; background: #62D141"></span>已找到 PokeMMO</span>
+<span style="flex-grow: 1"></span>
+<button type="button" aria-label="设置" style="width: 44px; height: 44px; border-radius: 10px; border: none; background: transparent; display: flex; align-items: center; justify-content: center; cursor: pointer">
+<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#3B403E" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="3"></circle><path d="M12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1"></path></svg>
+</button>
+</header>
+
+<div style="flex-grow: 1; min-height: 0; padding: 12px; display: flex; flex-direction: column; gap: 10px">
+
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 14px; padding: 16px; display: flex; flex-direction: column; gap: 12px">
+<div style="font-size: 12px; color: #5C625F; font-weight: 600">待机</div>
+<div style="font-size: 24px; font-weight: 700">准备就绪</div>
+<div style="font-size: 13px; color: #4A504D; line-height: 1.6">站在刷怪点后点开始。游戏会一直保持在前台，弹窗、走偏会自己处理。</div>
+<button type="button" style="height: 52px; border-radius: 12px; border: none; background: #62D141; color: #06240F; font-size: 17px; font-weight: 700; font-family: inherit; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer">
+<svg width="15" height="15" viewBox="0 0 24 24" fill="#06240F" aria-hidden="true"><path d="M7 4.5v15l12-7.5z"></path></svg>开始刷闪
+</button>
+</div>
+
+<div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px">
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 12px; padding: 11px 13px; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 11px; color: #5C625F">运行时长</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 19px; font-weight: 600">00:00:00</span></div>
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 12px; padding: 11px 13px; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 11px; color: #5C625F">已遇到</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 19px; font-weight: 600">0 <span style="font-size: 12px; color: #5C625F; font-family: inherit">轮</span></span></div>
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 12px; padding: 11px 13px; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 11px; color: #5C625F">PP</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 19px; font-weight: 600">0 / 6</span></div>
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 12px; padding: 11px 13px; display: flex; flex-direction: column; gap: 3px"><span style="font-size: 11px; color: #5C625F">下次换频道</span><span style="font-family: 'JetBrains Mono', monospace; font-size: 19px; font-weight: 600">40–50 分</span></div>
+</div>
+
+<div style="background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 14px; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px">
+<div style="font-size: 14px; font-weight: 700">功能</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<label for="fr" style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 500">轻飘飘群</span><span style="font-size: 12px; color: #5C625F">确认是轻飘飘群、不是闪光，才逃跑</span></label>
+<input id="fr" type="checkbox" checked="checked" style="width: 22px; height: 22px; accent-color: #62D141; cursor: pointer">
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<label for="pp" style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 500">PP果刷闪</span><span style="font-size: 12px; color: #5C625F">每 6 轮按 4 回中心补满 PP，再冲浪回来</span></label>
+<input id="pp" type="checkbox" checked="checked" style="width: 22px; height: 22px; accent-color: #62D141; cursor: pointer">
+</div>
+<div style="display: flex; align-items: center; justify-content: space-between; gap: 12px">
+<label for="ch" style="display: flex; flex-direction: column; gap: 2px"><span style="font-size: 14px; font-weight: 500">随机换频道</span><span style="font-size: 12px; color: #5C625F">每 40–50 分钟随机换一次，换完休息 3–8 分钟</span></label>
+<input id="ch" type="checkbox" checked="checked" style="width: 22px; height: 22px; accent-color: #62D141; cursor: pointer">
+</div>
+</div>
+
+<div style="flex-grow: 1; min-height: 0; background: #FFFFFF; border: 1px solid #E2E2DC; border-radius: 14px; padding: 14px; display: flex; flex-direction: column; gap: 8px">
+<div style="display: flex; align-items: center"><span style="font-size: 14px; font-weight: 700">动态</span><span style="flex-grow: 1"></span><a href="#" style="font-size: 12px; color: #1E7A3A; text-decoration: none">完整日志</a></div>
+<div style="flex-grow: 1; display: flex; align-items: center; justify-content: center; text-align: center; font-size: 13px; color: #5C625F; line-height: 1.6">开始后，每一轮、去医院的每一步<br>和自动恢复都会记在这里</div>
+</div>
+
+</div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":400,"height":796}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>
