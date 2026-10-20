@@ -33,6 +33,9 @@ class SpotTests(unittest.TestCase):
         self.assertEqual(spots.target_count('鲤鱼王Lv.20 鲤鱼王 鲤鱼王Lv.21', spots.get('lilycove')), 3)
         self.assertEqual(spots.target_count('轻飘飘 轻飘期 轻飘漂', spots.get('fanba')), 3)
         self.assertEqual(spots.target_count('轻飘飘 轻飘飘 轻飘飘', spots.get('lilycove')), 0)
+        # Real OCR at 琉璃市 2026-10-20 14:41:46 (stopped the run before this fix):
+        real = "鯉鱼王'水Lv.358g鲤鱼王'水Lv.358＆鯉鱼王'水Lv.359&鲤鱼王'水Lv.35古＆鯉鱼王'水Lv.358g"
+        self.assertEqual(spots.target_count(real, spots.get('lilycove')), 5)
 
     def test_unknown_key_falls_back_to_default(self):
         self.assertEqual(spots.get('nope')['key'], spots.DEFAULT_SPOT)

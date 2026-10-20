@@ -22,7 +22,8 @@ SPOTS = [
     },
     {
         'key': 'lilycove', 'name': '琉璃市 · 鲤鱼王', 'region': '丰缘', 'city': '琉璃市', 'targets': ['鲤鱼王'],
-        'keyword': r'鲤鱼', 'min_count': 3,
+        # 2026-10-20 real run: Vision read 3 of 5 names as traditional 鯉鱼王 -> count both forms.
+        'keyword': r'[鲤鯉][鱼魚]', 'min_count': 3,
         # Starting values from PokeLoop's spot list; NOT verified yet - expect to tune after the first real run.
         'route': [('S', 1.5, 1.8, '走出医院'), ('S', 1.6, 1.7, '向下走到岸边')],
         'surf': True, 'spot_water': None, 'verified': False,
