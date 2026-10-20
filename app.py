@@ -335,6 +335,16 @@ class App:
    self.say(f'  对话框还没关（{why}），补按空格 {attempt+1}/3');self.press(key)
   self.diagnostic(im,{'text':''},'dialog-stuck')
   raise RuntimeError('治疗后补按3次空格对话框仍未关闭，已停止，请看 diagnostics/latest-screen.png')
+ def wait_scene(self,limit):
+  # Wait until the map is drawn again after a door fade (playfield no longer near-black), then let the fade finish.
+  from PIL import ImageStat
+  started=time.monotonic()
+  while time.monotonic()-started<limit:
+   bright=max(ImageStat.Stat(self.capture().crop((200,140,820,610)).convert('L').resize((62,47))).mean)
+   if bright>25:
+    self.wait(.35);self.say(f'  已出门，画面恢复（用时 {time.monotonic()-started:.1f} 秒）');return
+   self.wait(.15)
+  self.say(f'  {limit:.0f} 秒后画面仍是黑的，按原路线继续')
  def route_snapshot(self,ix,label):
   try:
    folder=BASE/'diagnostics'/'hospital-route';folder.mkdir(parents=True,exist_ok=True)

@@ -37,6 +37,15 @@ class SpotTests(unittest.TestCase):
         real = "鯉鱼王'水Lv.358g鲤鱼王'水Lv.358＆鯉鱼王'水Lv.359&鲤鱼王'水Lv.35古＆鯉鱼王'水Lv.358g"
         self.assertEqual(spots.target_count(real, spots.get('lilycove')), 5)
 
+    def test_lilycove_waits_for_the_door_fade_before_walking(self):
+        seq = pp_recovery.RecoverySequence(spots.get('lilycove'))
+        kinds = [s[0] for s in seq.steps]
+        self.assertIn('wait_scene', kinds)
+        first_hold = kinds.index('hold'); fade = kinds.index('wait_scene')
+        self.assertLess(first_hold, fade); self.assertIn('hold', kinds[fade:])
+        self.assertEqual(seq.labels[fade], '等出门黑屏结束')
+        self.assertIn('最多3.0秒', pp_recovery.describe(fade, seq.steps[fade], seq.labels))
+
     def test_unknown_key_falls_back_to_default(self):
         self.assertEqual(spots.get('nope')['key'], spots.DEFAULT_SPOT)
 
@@ -73,6 +82,17 @@ class EngineSpotTests(unittest.TestCase):
         a = test_safety.SafetyTests('test_logs_never_touch_real_run_log').shell()
         a.protection = None; a.recoveries = []; a.route_test = True
         self.assertFalse(a.recoverable(RuntimeError('去医院路线走完后不在刷怪点（周围水面 4%）')))
+
+
+class DoorFadeTests(unittest.TestCase):
+    def test_wait_scene_returns_once_the_map_is_back(self):
+        from PIL import Image
+        a = test_safety.SafetyTests('test_logs_never_touch_real_run_log').shell()
+        frames = [Image.new('RGB', (1024, 768), (0, 0, 0))] * 2 + [Image.new('RGB', (1024, 768), (70, 110, 120))]
+        a.capture = Mock(side_effect=frames); a.wait = Mock()
+        app.App.wait_scene(a, 3.0)
+        self.assertEqual(a.capture.call_count, 3)
+        self.assertTrue(any('已出门' in str(c.args[0]) for c in a.say.call_args_list))
 
 
 class BattleTargetTests(unittest.TestCase):

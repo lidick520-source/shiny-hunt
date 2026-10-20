@@ -21,6 +21,7 @@ def describe(ix, step, labels=None):
     label=labels[ix] if ix<len(labels) else step[0]
     kind=step[0]
     if kind=='wait':return f'{label}（{step[1]:.1f}秒）'
+    if kind=='wait_scene':return f'{label}（最多{step[1]:.1f}秒）'
     if kind in('press','close_dialog'):return f'{label}（按键 {KEY_NAMES.get(step[1],hex(step[1]))}）'
     return label
 
@@ -53,6 +54,11 @@ class RecoverySequence:
         self.labels += ['按空格和护士搭话','等待护士说话','按空格确认治疗','等待治疗完成','按空格结束对话（确认对话框已关闭）','等待对话框消失']
         for entry in route:
             key,low,high=entry[:3]
+            if key=='door':
+                # Leaving a building fades to black; a hold that runs during the fade walks nowhere.
+                self.steps += [('wait_scene',float(high))]
+                self.labels += [entry[3] if len(entry)>3 else '等出门黑屏结束']
+                continue
             if key not in KEY_CODES or not 0<float(low)<=float(high)<=10:
                 raise ValueError('返回路线参数无效')
             self.steps += [('hold',KEY_CODES[key],float(low),float(high)),('wait',.3)]
@@ -78,6 +84,7 @@ class RecoverySequence:
             elif step[0]=='close_dialog':
                 (host.close_dialog if hasattr(host,'close_dialog') else host.press)(step[1])
             elif step[0]=='wait':host.wait(step[1])
+            elif step[0]=='wait_scene':(host.wait_scene if hasattr(host,'wait_scene') else host.wait)(step[1])
             else:host.hold_key(step[1],seconds)
             if hasattr(host,'route_snapshot'):host.route_snapshot(ix,self.labels[ix] if ix<len(self.labels) else step[0])
             progress.recovery_index=ix+1

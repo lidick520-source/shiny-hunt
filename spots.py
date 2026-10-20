@@ -24,10 +24,13 @@ SPOTS = [
         'key': 'lilycove', 'name': '琉璃市 · 鲤鱼王', 'region': '丰缘', 'city': '琉璃市', 'targets': ['鲤鱼王'],
         # 2026-10-20 real run: Vision read 3 of 5 names as traditional 鯉鱼王 -> count both forms.
         'keyword': r'[鲤鯉][鱼魚]', 'min_count': 3,
-        # Starting values from PokeLoop's spot list; NOT verified yet - expect to tune after the first real run.
-        'route': [('S', 1.5, 1.8, '走出医院'), ('S', 1.6, 1.7, '向下走到岸边')],
+        # 2026-10-20 first real trip: the PokeLoop times ended in the door fade (step 9 frame black) and the
+        # character stopped on land ~2 tiles under the door, so 5 said 不会有任何效果. Now: wait out the fade,
+        # then over-hold S - the water straight below blocks the walk exactly at the shore - plus a short nudge.
+        'route': [('S', 1.5, 1.8, '走出医院'), ('door', 3.0, 3.0, '等出门黑屏结束'),
+                  ('S', 2.0, 2.2, '向下走到岸边'), ('S', .5, .7, '再补按S贴到岸边（已在岸边则不动）')],
         'surf': True, 'spot_water': None, 'verified': False,
-        'note': '路线时间取自 PokeLoop，待实测校正',
+        'note': '2026-10-20 第一次回院停在岸上，已改为等黑屏+多按S，待再测',
     },
 ]
 
