@@ -3,10 +3,13 @@ set -eu
 cd -- "${0:A:h}"
 mkdir -p .build
 staging=$(mktemp -d "$PWD/.build/native.XXXXXX")
+# The Swift module cache stores absolute paths: keep one cache per folder location, so moving the
+# project (2026-10-20: Downloads -> ~/Projects) never reuses a cache made for the old path.
+cache="$PWD/.build/module-cache-$(print -rn -- "$PWD" | /usr/bin/shasum | cut -c1-10)"
 trap 'rm -rf -- "$staging"' EXIT
 app_bundle="$staging/Mac刷闪助手.app"
 mkdir -p "$app_bundle/Contents/MacOS" "$app_bundle/Contents/Resources" .build
-/usr/bin/xcrun swiftc -parse-as-library -swift-version 5 -target arm64-apple-macos14.0 -O -module-cache-path "$PWD/.build/module-cache" Native/ShinyHunt.swift -o "$app_bundle/Contents/MacOS/ShinyHunt" -framework SwiftUI -framework AppKit
+/usr/bin/xcrun swiftc -parse-as-library -swift-version 5 -target arm64-apple-macos14.0 -O -module-cache-path "$cache" Native/ShinyHunt.swift -o "$app_bundle/Contents/MacOS/ShinyHunt" -framework SwiftUI -framework AppKit
 cat > "$app_bundle/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
