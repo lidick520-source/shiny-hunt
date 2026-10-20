@@ -44,6 +44,23 @@ class NativeTests(unittest.TestCase):
             self.assertEqual(engine.calibrated,(42,(10,30,1024,768)));self.assertEqual(engine.game_pid,4321)
             self.assertTrue((Path(d)/'preview.png').exists())
 
+    def test_top_window_check_never_skips_the_assistant(self):
+        with tempfile.TemporaryDirectory() as d:
+            engine=self.engine(Path(d))
+            wins=[{'kCGWindowLayer':0,'kCGWindowOwnerPID':bridge.os.getppid()},{'kCGWindowLayer':0,'kCGWindowOwnerPID':4321}]
+            with patch.object(bridge,'windows',return_value=wins):
+                self.assertNotEqual(engine.top_window_pid(),4321)               # assistant on top: game is not in front
+
+    def test_front_failure_explains_lost_accessibility(self):
+        with tempfile.TemporaryDirectory() as d:
+            engine=self.engine(Path(d));engine.emit_native=lambda m:None
+            with patch.object(engine,'native_call',side_effect=RuntimeError('Mac刷闪助手没有辅助功能权限')), \
+                 patch.object(engine,'front_pid',return_value=999),patch.object(engine,'top_window_pid',return_value=999), \
+                 patch.object(bridge,'accessibility_trusted',return_value=False),patch.object(bridge.time,'sleep'), \
+                 patch.object(bridge.AppKit.NSRunningApplication,'runningApplicationWithProcessIdentifier_',create=True):
+                with self.assertRaisesRegex(RuntimeError,'辅助功能权限失效'):engine.bring_game_front(4321,42,[42])
+            self.assertIn('切前台失败详情',engine.say.call_args_list[-1][0][0] if isinstance(engine.say,Mock) else '切前台失败详情')
+
     def test_attach_falls_back_to_accessibility_when_activation_is_refused(self):
         with tempfile.TemporaryDirectory() as d:
             engine=self.engine(Path(d));front=[999];calls=[]

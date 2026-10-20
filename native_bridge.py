@@ -15,7 +15,7 @@ import app as _app
 def app_geometry(h):
     # Look up through the app module so tests patching app.geometry apply here too.
     return _app.geometry(h)
-from mac_backend import Q, info, AppKit
+from mac_backend import Q, info, AppKit, windows, accessibility_trusted
 from notifications import Notifier
 from pp_recovery import PPProgress, RecoverySequence
 
@@ -222,17 +222,37 @@ class NativeEngine(App):
             app = AppKit.NSRunningApplication.runningApplicationWithProcessIdentifier_(pid)
             if app:app.activateWithOptions_(AppKit.NSApplicationActivateIgnoringOtherApps)
         except Exception:pass
+        native_error = ''
         for attempt in range(2):
             deadline = time.monotonic() + 1.5
             while time.monotonic() < deadline:
-                if self.front_pid() == pid:
+                if self.front_pid() == pid or self.top_window_pid() == pid:
                     fg = foreground()
                     return fg if fg in valid else h
                 time.sleep(.05)
             if attempt == 0 and self.emit_native:
                 try:self.native_call('activate', pid=pid)
-                except RuntimeError:pass
+                except RuntimeError as exc:native_error = str(exc)
+        # 2026-10-20 real run failed here 5 times with no detail: record exactly what was seen.
+        try:trusted = '有' if accessibility_trusted() else '没有'
+        except Exception:trusted = '未知'
+        front = self.front_pid(); top = self.top_window_pid()
+        self.say(f'  切前台失败详情：游戏进程 {pid}，macOS 记录的前台进程 {front}，屏幕最上层窗口的进程 {top}，'
+                 f'辅助功能授权：{trusted}，助手拉前台的结果：{native_error or "没有报错"}')
+        if trusted == '没有' or '辅助功能' in native_error:
+            raise RuntimeError('游戏没能切到前台：「Mac刷闪助手」的辅助功能权限失效了（重新编译后系统可能不认了）。'
+                               '请到 系统设置 → 隐私与安全性 → 辅助功能，把「Mac刷闪助手」关掉再打开')
         raise RuntimeError('游戏没能切到前台：请点一下游戏窗口再按开始')
+
+    def top_window_pid(self):
+        # Front-to-back window list: owner of the topmost normal window (the assistant's own counts:
+        # if it is on top, the game is NOT in front and no key may be sent).
+        try:
+            for w in windows():
+                if w.get('kCGWindowLayer') == 0 and float(w.get('kCGWindowAlpha', 1)) > 0:
+                    return int(w.get('kCGWindowOwnerPID'))
+        except Exception:pass
+        return None
 
     def regain_focus(self):
         # Keep the game in front: whatever took the focus, give it back to the game and carry on.
