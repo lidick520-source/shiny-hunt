@@ -79,16 +79,27 @@ def channel_interval():
 NO_RECOVERY=('闪光','验证','手动停止','F8','已关闭','缺少屏幕录制','尚未授予','窗口为','原生输入','六次遭遇完成','轻飘飘全自动','未确认是','路线测试','游戏已关闭','切不回前台','没找到 PokeMMO','自动恢复')
 def CHANNEL_ROW(n):return (446,338+27*(n-1)-9,132,18)   # 频道1 y=338, step 27 (real screenshots)
 CHANNEL_WINDOW_BOX=(424,322,600,488)   # checkbox + 变更/取消, cut from the real screenshot (assets/channel_window.png)
-def channel_window_score(im):
- try:ref=np.asarray(Image.open(BASE/'assets'/'channel_window.png').convert('L')).astype(float)
- except Exception:return 0.0
- g=im.convert('L');x0,y0,x1,y1=CHANNEL_WINDOW_BOX;b=ref-ref.mean();best=-1.0
+# 2026-10-23 琉璃市: right after a change the window shows a 「下次切换: N秒后」 row on top and everything
+# below it sits 11 px lower (变更 greyed out). Same window, so it is found with that offset too.
+CHANNEL_COOLDOWN_DY=11
+def channel_window_match(im):
+ """(score, dy): dy=0 normal window, dy≈CHANNEL_COOLDOWN_DY the cooldown layout."""
+ try:
+  ref=np.asarray(Image.open(BASE/'assets'/'channel_window.png').convert('L')).astype(float)
+  g=im.convert('L')
+ except Exception:return 0.0,0
+ x0,y0,x1,y1=CHANNEL_WINDOW_BOX;b=ref-ref.mean();best=(-1.0,0)
  for dx in (-2,0,2):
-  for dy in (-2,0,2):
+  for dy in (-2,0,2,CHANNEL_COOLDOWN_DY-2,CHANNEL_COOLDOWN_DY,CHANNEL_COOLDOWN_DY+2):
    a=np.asarray(g.crop((x0+dx,y0+dy,x1+dx,y1+dy))).astype(float)
    if a.shape!=ref.shape:continue
-   a=a-a.mean();best=max(best,float((a*b).sum()/np.sqrt((a*a).sum()*(b*b).sum()+1e-9)))
- return best
+   a=a-a.mean();sc=float((a*b).sum()/np.sqrt((a*a).sum()*(b*b).sum()+1e-9))
+   if sc>best[0]:best=(sc,dy)
+ return best[0],(CHANNEL_COOLDOWN_DY if best[1]>5 else 0)   # buttons only move with the layout, not the ±2 jitter
+def channel_window_score(im):
+ return channel_window_match(im)[0]
+def shifted(rect,dy):
+ return (rect[0],rect[1]+dy)+tuple(rect[2:])
 def hud_channel(text):
  m=re.search(r'Ch\.?\s*(\d+)',str(text or ''));return int(m.group(1)) if m else None
 _CN_VARIANTS=str.maketrans({'換':'换','頻':'频','當':'当','變':'变','選':'选'})
@@ -302,6 +313,17 @@ class App:
   text=data.get('text','')
   return bool(re.search(r'Lv\.?\s*\d+|野生怪群出现|派出了|成功逃脱|战斗|逃跑|使出了',text))
  def hold_key(self,key,seconds):
+  moved=self._hold_once(key,seconds)
+  if moved is None:return
+  if moved<12:
+   # 2026-10-23 22:01: once right after the nurse a full S hold did nothing (no dialog on screen).
+   # Give the game the keyboard again and try the same walk once more before calling it a failure.
+   self.say(f'  这次长按没走动（画面差异 {moved:.1f}），切回游戏再按一次');self.ensure();self.wait(.8)
+   moved=self._hold_once(key,seconds)
+  if moved<12:  # real walks measured 38-170; a blocked walk (open dialogue) only 3-5
+   raise RuntimeError(f'长按方向键后人物没有走动（画面差异 {moved:.1f}，正常应大于12）；可能对话框没关或被挡住，已停止')
+  self.say(f'  人物已走动（画面差异 {moved:.1f}）')
+ def _hold_once(self,key,seconds):
   # macOS: one synthetic keyDown may not auto-repeat in PokeMMO.
   # Keep the key held and feed repeat events at a bounded cadence.
   before=self.capture().crop((200,140,820,610)).resize((155,118)) if seconds>=.8 else None
@@ -316,15 +338,11 @@ class App:
      self.ensure()
      self.repeat_event(key)
   finally:self.key_event(key,False)
-  if before is not None:
-   # Verify the playfield visibly changed; no assumption that an event post
-   # equals movement. This detects completely ignored direction inputs.
-   from PIL import ImageChops, ImageStat
-   after=self.capture().crop((200,140,820,610)).resize((155,118))
-   mean=ImageStat.Stat(ImageChops.difference(before,after)).mean
-   if max(mean)<12:  # real walks measured 38-170; a blocked walk (open dialogue) only 3-5
-    raise RuntimeError(f'长按方向键后人物没有走动（画面差异 {max(mean):.1f}，正常应大于12）；可能对话框没关或被挡住，已停止')
-   self.say(f'  人物已走动（画面差异 {max(mean):.1f}）')
+  if before is None:return None
+  # Verify the playfield visibly changed; no assumption that an event post equals movement.
+  from PIL import ImageChops, ImageStat
+  after=self.capture().crop((200,140,820,610)).resize((155,118))
+  return max(ImageStat.Stat(ImageChops.difference(before,after)).mean)
  def remember_dialog_reference(self):
   # Arrival frame at the nurse, before talking: used to tell whether the dialogue box is gone.
   self.dialog_reference=self.capture()
@@ -455,7 +473,11 @@ class App:
    if first and kind=='outdoor':return 'start'
    if kind=='yes_no':self.say('  按空格选「是」');self.press(0x20);self.wait(3)
    elif kind=='dialog':self.say('  按空格关闭对话');self.press(0x20);self.wait(1)
-   elif kind=='channel_window':self.say('  点「取消」关闭换频道窗口');self.click(CHANNEL_CANCEL_BUTTON);self.wait(.5);self.defocus_ui();closed_popup=True
+   elif kind=='channel_window':
+    try:dy=channel_window_match(im)[1]
+    except Exception:dy=0
+    self.say('  点「取消」关闭换频道窗口'+('（冷却中的样式）' if dy>5 else ''))
+    self.click(shifted(CHANNEL_CANCEL_BUTTON,dy));self.wait(.5);self.defocus_ui();closed_popup=True
    elif kind=='channel_list':self.say('  点下拉框收起频道列表');self.click(CHANNEL_DROPDOWN);self.wait(.8)
    elif kind=='tournament':self.say('  点 × 关闭锦标赛报名窗口');self.click(TOURNAMENT_CLOSE);self.wait(.5);self.defocus_ui();closed_popup=True
    elif kind=='social_menu':self.say('  再点一次书本图标收起菜单');self.click(SOCIAL_ICON);self.wait(.5);self.defocus_ui();closed_popup=True
@@ -502,6 +524,41 @@ class App:
    self.capture().save(folder/f'{step:02d}-{label}.png',compress_level=1)
   except Exception:pass
  def switch(self):
+  try:return self._switch()
+  except RuntimeError:
+   # Whatever went wrong, the next attempt is 10 minutes away (2026-10-23: a failure at 23:05:37 was
+   # retried 17 s later into the cooldown window).
+   self.next_switch=self.elapsed+600;raise
+ def open_channel_window(self,log=None):
+  """Book icon -> 更换频道. Returns (score, dy) of the channel window."""
+  def lines():return self.check_verification(self.capture()).get('lines',[])
+  def find():
+   for l in lines():
+    if re.search(r'更换频道',cn_norm(l['text'])) and 560<=l['y']<=720:return (int(l['x'])-8,int(l['y'])-4,int(l['w'])+16,int(l['h'])+8)
+   return None
+  self.click(SOCIAL_ICON);self.wait(.7)
+  if log:log('点右下角第3个图标（书本：好友/公会/更换频道）')
+  item=find()
+  if not item:self.wait(.5);item=find()
+  if not item and screen_state.matches(self.capture(),'social_menu'):
+   # 2026-10-23 琉璃市: OCR missed the menu text over the dark water 6 times in a row, the menu was open.
+   item=SOCIAL_CHANGE_CHANNEL;self.say('  菜单文字没读到，但书本菜单确实开着：按固定位置点「更换频道」')
+  if not item:raise RuntimeError('右下角菜单里没找到「更换频道」，已停止，截图在 diagnostics/channel-switch')
+  self.click(item);self.wait(1)
+  if log:log('点「更换频道」')
+  return channel_window_match(self.capture())
+ def confirm_switched(self,target):
+  """The HUD's channel digit can sit under the hotbar (long map names such as 琉璃市(水)(Sootopolis City)).
+  Reopen the window: its dropdown names the current channel, and the cooldown row only exists right after a change."""
+  score,dy=self.open_channel_window()
+  if score<.8:raise RuntimeError(f'切换后重新打开换频道窗口失败（相似度 {score:.2f}），无法确认是否切到频道{target}，已停止')
+  current=cn_norm(self.read(shifted(CHANNEL_DROPDOWN_READ,dy)));m=re.search(r'频道(\d+)',current)
+  self.click(shifted(CHANNEL_CANCEL_BUTTON,dy));self.wait(.6);self.defocus_ui()
+  if m and int(m.group(1))==target:return f'窗口显示当前是频道{target}'
+  if m:raise RuntimeError(f'切换后窗口显示当前是频道{m.group(1)}，不是频道{target}，已停止')
+  if dy>5:return '窗口出现了换频道冷却（刚换成功才会有）'
+  raise RuntimeError(f'切换后左上角看不到频道号，窗口里也读不出当前频道，无法确认是否切到频道{target}，已停止')
+ def _switch(self):
   if not CHANNEL_SWITCH_VERIFIED:
    self.next_switch=self.elapsed+channel_interval()
    self.say('换频道时间到：点击位置还没核实，本次跳过换频道，继续刷');return
@@ -519,16 +576,11 @@ class App:
   log('当前画面')
   hud_before=hud_channel(self.read((0,0,330,30)))
   # Positions verified on real screenshots 2026-10-18 18:14-18:19 (game window coordinates).
-  self.click(SOCIAL_ICON);self.wait(.7);log('点右下角第3个图标（书本：好友/公会/更换频道）')
-  text,item=find(r'更换频道',560,720)
-  if not item:
-   self.wait(.5);text,item=find(r'更换频道',560,720)
-  if not item and screen_state.matches(self.capture(),'social_menu'):
-   # 2026-10-23 琉璃市: OCR missed the menu text over the dark water 6 times in a row, the menu was open.
-   item=SOCIAL_CHANGE_CHANNEL;self.say('  菜单文字没读到，但书本菜单确实开着：按固定位置点「更换频道」')
-  if not item:raise RuntimeError('右下角菜单里没找到「更换频道」，已停止，截图在 diagnostics/channel-switch')
-  self.click(item);self.wait(1);log('点「更换频道」')
-  score=channel_window_score(self.capture())
+  score,dy=self.open_channel_window(log)
+  if score>=.8 and dy>5:
+   # Cooldown layout: a change happened moments ago (e.g. confirmed late). Close it and wait for the next turn.
+   self.click(shifted(CHANNEL_CANCEL_BUTTON,dy));self.wait(.6);self.defocus_ui()
+   self.next_switch=self.elapsed+600;self.say('  换频道窗口在冷却中（刚换过频道），已关掉，10 分钟后再换');return
   if score<.8:raise RuntimeError(f'没看到换频道窗口（和真实截图的相似度 {score:.2f}），已停止，截图在 diagnostics/channel-switch')
   current=cn_norm(self.read(CHANNEL_DROPDOWN_READ));m=re.search(r'频道(\d+)',current)
   old=hud_before or (int(m.group(1)) if m else None)
@@ -558,14 +610,16 @@ class App:
   if channel_window_score(self.capture())<.8:raise RuntimeError('选完频道后换频道窗口不见了，已停止，截图在 diagnostics/channel-switch')
   if not picked:self.say(f'  下拉框文字没读到，窗口仍在；点变更后用左上角 Ch.{target} 最终确认')
   self.click(CHANNEL_CHANGE_BUTTON);self.wait(3);log(f'点「变更」切到频道{target}')
-  deadline=time.monotonic()+10
+  deadline=time.monotonic()+10;how=None
   while True:
    hud=self.read((0,0,330,30))
-   if re.search(r'Ch\.?\s*'+str(target)+r'(?!\d)',hud):break
-   if time.monotonic()>deadline:raise RuntimeError(f'切换后左上角没有显示 Ch.{target}（读到：{hud.strip() or "空"}），已停止')
+   if re.search(r'Ch\.?\s*'+str(target)+r'(?!\d)',hud):how=f'左上角已显示 Ch.{target}';break
+   if time.monotonic()>deadline:break
    self.wait(.8)
-  log(f'左上角已显示 Ch.{target}')
-  self.defocus_ui()
+  if how:log(how);self.defocus_ui()
+  else:
+   self.say(f'  左上角没读到 Ch.{target}（读到：{hud.strip() or "空"}，频道号可能被快捷栏挡住），重新打开换频道窗口确认')
+   how=self.confirm_switched(target);log(f'已确认：{how}')
   gap=channel_interval();self.next_switch=self.elapsed+gap;self.rest_until=time.monotonic()+random.randint(180,480)
   self.say(f'已切到频道{target}，随机休息至倒计时结束；下次换频道在 {gap//60} 分钟后')
  def run(self):

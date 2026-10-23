@@ -304,6 +304,8 @@ class NativeTests(unittest.TestCase):
         a.read=Mock(side_effect=reads);a.capture=Mock()
         a.check_verification=Mock(side_effect=[{'text':'','lines':l} for l in scans])
         scores=getattr(self,'window_scores',None);score=patch.object(app,'channel_window_score',**({'side_effect':scores} if scores else {'return_value':getattr(self,'window_score',.97)}));score.start();self.addCleanup(score.stop)
+        dys=getattr(self,'window_dys',None)
+        match=patch.object(app,'channel_window_match',side_effect=lambda im:(app.channel_window_score(im),next(dys) if dys else 0));match.start();self.addCleanup(match.stop)
         return a
 
     MENU=[{'text':'好友','x':805,'y':588,'w':30,'h':16},{'text':'更换频道','x':790,'y':649,'w':60,'h':16}]
@@ -364,6 +366,52 @@ class NativeTests(unittest.TestCase):
             a.switch()
         self.assertEqual(a.click.call_args_list[1][0][0],app.SOCIAL_CHANGE_CHANNEL)
         self.assertIn('已切到频道3',a.say.call_args[0][0])
+
+    # ---- 2026-10-23 琉璃市 real run ----
+    SIM=Path(__file__).resolve().parent/'sim'/'frames'
+
+    def test_cooldown_window_is_recognised_on_the_real_screenshot(self):
+        from PIL import Image
+        cool=Image.open(self.SIM/'ch_window_cooldown.png').convert('RGB')
+        score,dy=app.channel_window_match(cool)
+        self.assertGreaterEqual(score,.8);self.assertEqual(dy,app.CHANNEL_COOLDOWN_DY)
+        self.assertEqual(app.channel_window_match(Image.open(self.SIM/'ch_window.png').convert('RGB'))[1],0)
+        kind,_=screen_state.classify(cool,{'text':'','lines':[]},channel_window=app.channel_window_score(cool))
+        self.assertEqual(kind,'channel_window')                              # recovery closes it before pressing 5
+
+    def confirm_host(self,match,read):
+        a=test_safety.SafetyTests('test_logs_never_touch_real_run_log').shell()
+        a.click=Mock();a.wait=Mock();a.defocus_ui=Mock();a.capture=Mock()
+        a.check_verification=Mock(return_value={'text':'','lines':self.MENU});a.read=Mock(return_value=read)
+        p=patch.object(app,'channel_window_match',return_value=match);p.start();self.addCleanup(p.stop)
+        return a
+
+    def test_hidden_hud_channel_is_confirmed_by_the_window(self):
+        a=self.confirm_host((.97,0),'频道2 -- 当前频道')
+        self.assertIn('频道2',a.confirm_switched(2))
+        self.assertEqual(a.click.call_args_list[-1][0][0],app.CHANNEL_CANCEL_BUTTON)   # window closed again
+
+    def test_cooldown_row_after_the_change_counts_as_switched(self):
+        a=self.confirm_host((.85,app.CHANNEL_COOLDOWN_DY),'')
+        self.assertIn('冷却',a.confirm_switched(2))
+        self.assertEqual(a.click.call_args_list[-1][0][0],app.shifted(app.CHANNEL_CANCEL_BUTTON,app.CHANNEL_COOLDOWN_DY))
+
+    def test_window_naming_another_channel_is_a_failure(self):
+        a=self.confirm_host((.97,0),'频道1 -- 当前频道')
+        with self.assertRaisesRegex(RuntimeError,'不是频道2'):a.confirm_switched(2)
+
+    def test_failed_switch_waits_ten_minutes_before_the_next_try(self):
+        a=self.switch_host(['Ch.2'],[[],[]])
+        with patch.object(screen_state,'matches',return_value=False):
+            with self.assertRaises(RuntimeError):a.switch()
+        self.assertEqual(a.next_switch,a.elapsed+600)
+
+    def test_cooldown_window_at_the_start_is_closed_without_changing(self):
+        self.window_dys=iter([app.CHANNEL_COOLDOWN_DY])
+        a=self.switch_host(['Ch.2'],[self.MENU])
+        a.switch()
+        self.assertEqual([c[0][0] for c in a.click.call_args_list[-2:]],[app.shifted(app.CHANNEL_CANCEL_BUTTON,app.CHANNEL_COOLDOWN_DY),app.WORLD_FOCUS])
+        self.assertEqual(a.next_switch,a.elapsed+600)
 
     def test_channel_switch_trusts_list_current_marker_over_hud(self):
         a=self.switch_host(['Ch.1','','','频道3','Ch.3'],[self.MENU,self.LIST])   # HUD misread as 1
@@ -544,10 +592,22 @@ class NativeTests(unittest.TestCase):
         from PIL import Image
         a=test_safety.SafetyTests('test_logs_never_touch_real_run_log').shell()
         base=Image.new('RGB',(1024,768),(100,100,100));nudged=Image.new('RGB',(1024,768),(104,104,104))
-        a.capture=Mock(side_effect=[base,nudged]);a.ensure=Mock();a.key_event=Mock();a.repeat_event=Mock();a.wait=Mock()
-        ticks=iter([0,0,10,10])
+        a.capture=Mock(side_effect=[base,nudged,base,nudged]);a.ensure=Mock();a.key_event=Mock();a.repeat_event=Mock();a.wait=Mock()
+        ticks=iter([0,0,10,10]*2)
         with patch.object(app.time,'monotonic',side_effect=lambda:next(ticks)):
             with self.assertRaisesRegex(RuntimeError,'没有走动'):a.hold_key(0x53,1.0)
+        self.assertEqual(a.key_event.call_count,4)                          # tried twice before giving up
+
+    def test_walk_that_failed_once_is_retried(self):
+        # 2026-10-23 22:01: one S hold after the nurse did nothing; the second one walks.
+        from PIL import Image
+        a=test_safety.SafetyTests('test_logs_never_touch_real_run_log').shell()
+        base=Image.new('RGB',(1024,768),(100,100,100));moved=Image.new('RGB',(1024,768),(160,160,160))
+        a.capture=Mock(side_effect=[base,base,base,moved]);a.ensure=Mock();a.key_event=Mock();a.repeat_event=Mock();a.wait=Mock()
+        ticks=iter([0,0,10,10]*2)
+        with patch.object(app.time,'monotonic',side_effect=lambda:next(ticks)):
+            a.hold_key(0x53,1.0)
+        self.assertTrue(any('人物已走动' in str(c.args[0]) for c in a.say.call_args_list))
 
     def test_hospital_log_is_descriptive(self):
         h=Mock();h.close_dialog=Mock();del h.remember_dialog_reference;del h.route_snapshot
