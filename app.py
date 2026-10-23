@@ -65,6 +65,12 @@ CHANNEL_COUNT=5
 CHANNEL_CANCEL_BUTTON=(446,429,132,44) # 取消 (438-586, 423-480 on the real screenshot)
 TOURNAMENT_CLOSE=(845,181,8,8)         # × of the 锦标赛报名 window (real screenshot)
 PVP_ICON=(837,740,16,16)               # 4th bottom-right icon (pokeball)
+# 「更换频道」 row of the book menu: the same place on every real screenshot (帆巴市 2026-10-18, 琉璃市 2026-10-23).
+SOCIAL_CHANGE_CHANNEL=(778,647,82,20)
+# Empty game-world spot left of the player. 2026-10-23 琉璃市: after the book icon was clicked to close its
+# menu, the icon kept keyboard focus, so the nurse's 空格 reopened the menu and opened 好友 instead.
+# A click on the world hands the keyboard back to the game.
+WORLD_FOCUS=(40,420,10,10)
 # User confirmed 2026-10-18 21:16: clicking the same icon again closes its popup menu (book and pokeball).
 # Never auto-recover from these: protection stops, user stops, setup problems.
 def channel_interval():
@@ -430,7 +436,7 @@ class App:
  def recover_screen(self,first=False,seen=None):
   # Look at the screen, do the one safe action for what is there, look again. Battles go back to the
   # normal loop (it does the shiny checks). first=True: at start only close windows, the start point is here.
-  last=None;same=0;route_done=False
+  last=None;same=0;route_done=False;closed_popup=False;probed=False
   for attempt in range(1,11):
    if self.stop_event.is_set():raise RuntimeError('任务已停止')
    im,data=seen if (seen and attempt==1) else (None,None)
@@ -449,11 +455,11 @@ class App:
    if first and kind=='outdoor':return 'start'
    if kind=='yes_no':self.say('  按空格选「是」');self.press(0x20);self.wait(3)
    elif kind=='dialog':self.say('  按空格关闭对话');self.press(0x20);self.wait(1)
-   elif kind=='channel_window':self.say('  点「取消」关闭换频道窗口');self.click(CHANNEL_CANCEL_BUTTON);self.wait(1)
+   elif kind=='channel_window':self.say('  点「取消」关闭换频道窗口');self.click(CHANNEL_CANCEL_BUTTON);self.wait(.5);self.defocus_ui();closed_popup=True
    elif kind=='channel_list':self.say('  点下拉框收起频道列表');self.click(CHANNEL_DROPDOWN);self.wait(.8)
-   elif kind=='tournament':self.say('  点 × 关闭锦标赛报名窗口');self.click(TOURNAMENT_CLOSE);self.wait(1)
-   elif kind=='social_menu':self.say('  再点一次书本图标收起菜单');self.click(SOCIAL_ICON);self.wait(.8)
-   elif kind=='pvp_menu':self.say('  再点一次精灵球图标收起菜单');self.click(PVP_ICON);self.wait(.8)
+   elif kind=='tournament':self.say('  点 × 关闭锦标赛报名窗口');self.click(TOURNAMENT_CLOSE);self.wait(.5);self.defocus_ui();closed_popup=True
+   elif kind=='social_menu':self.say('  再点一次书本图标收起菜单');self.click(SOCIAL_ICON);self.wait(.5);self.defocus_ui();closed_popup=True
+   elif kind=='pvp_menu':self.say('  再点一次精灵球图标收起菜单');self.click(PVP_ICON);self.wait(.5);self.defocus_ui();closed_popup=True
    elif kind=='loading':self.wait(1.5)
    elif kind=='unknown' and attempt<=3:self.wait(1.5)
    elif kind=='pc_hall' and not self.pp_run:
@@ -467,6 +473,11 @@ class App:
     self.wait(1.5)
    else:   # outdoor somewhere else, or still unrecognised: the hospital route is the known way back
     if first:return 'start'
+    if kind=='outdoor' and closed_popup and not probed:
+     # A popup opened over the spot does not move the player; crowded water spots (琉璃市) defeat the
+     # map reference, so try 5 once before walking the whole route. No battle -> the normal loop raises
+     # and the next recovery walks the route.
+     probed=True;self.say('  刚收起弹窗，人应该还在原地：先按 5 试一次');return 'press5'
     if not self.pp_run:
      if kind=='unknown' or kind=='outdoor':
       raise RuntimeError(f'自动恢复：PP果定点模式下不在原来的点位（{screen_state.LABELS[kind]}），这个模式不会自己走回去，已停止')
@@ -480,6 +491,9 @@ class App:
      continue
     return 'press5'
   raise RuntimeError('自动恢复：10步之后仍没回到刷怪点，已停止')
+ def defocus_ui(self):
+  # Hand the keyboard back to the game after clicking a HUD control (see WORLD_FOCUS).
+  self.click(WORLD_FOCUS);self.wait(.3)
  def switch_snapshot(self,step,label):
   try:
    folder=BASE/'diagnostics'/'channel-switch';folder.mkdir(parents=True,exist_ok=True)
@@ -507,6 +521,11 @@ class App:
   # Positions verified on real screenshots 2026-10-18 18:14-18:19 (game window coordinates).
   self.click(SOCIAL_ICON);self.wait(.7);log('点右下角第3个图标（书本：好友/公会/更换频道）')
   text,item=find(r'更换频道',560,720)
+  if not item:
+   self.wait(.5);text,item=find(r'更换频道',560,720)
+  if not item and screen_state.matches(self.capture(),'social_menu'):
+   # 2026-10-23 琉璃市: OCR missed the menu text over the dark water 6 times in a row, the menu was open.
+   item=SOCIAL_CHANGE_CHANNEL;self.say('  菜单文字没读到，但书本菜单确实开着：按固定位置点「更换频道」')
   if not item:raise RuntimeError('右下角菜单里没找到「更换频道」，已停止，截图在 diagnostics/channel-switch')
   self.click(item);self.wait(1);log('点「更换频道」')
   score=channel_window_score(self.capture())
@@ -546,6 +565,7 @@ class App:
    if time.monotonic()>deadline:raise RuntimeError(f'切换后左上角没有显示 Ch.{target}（读到：{hud.strip() or "空"}），已停止')
    self.wait(.8)
   log(f'左上角已显示 Ch.{target}')
+  self.defocus_ui()
   gap=channel_interval();self.next_switch=self.elapsed+gap;self.rest_until=time.monotonic()+random.randint(180,480)
   self.say(f'已切到频道{target}，随机休息至倒计时结束；下次换频道在 {gap//60} 分钟后')
  def run(self):

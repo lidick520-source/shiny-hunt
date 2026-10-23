@@ -200,6 +200,8 @@ class FakeGame:
         s = self.state
         self.clicks.append((round(x), round(y), s))
         if self._channel_click(s, x, y): return
+        if s in ('map', 'loading') and 30 <= x <= 50 and 410 <= y <= 430:
+            return   # WORLD_FOCUS: a click on empty game world only takes the keyboard focus back
         if s != 'menu':
             self.problem(f'在「{s}」状态点击了 ({x:.0f},{y:.0f})'); return
         x0, y0, x1, y1 = ESCAPE_BUTTON

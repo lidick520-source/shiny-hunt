@@ -44,10 +44,10 @@ class RecoveryTests(unittest.TestCase):
         a.click.assert_not_called(); a.press.assert_not_called()   # escape only after the shiny check in run()
 
     def test_each_screen_gets_its_safe_action(self):
-        cases = [('tournament', lambda a: a.click.assert_called_with(app.TOURNAMENT_CLOSE)),
-                 ('channel_window', lambda a: a.click.assert_called_with(app.CHANNEL_CANCEL_BUTTON)),
+        cases = [('tournament', lambda a: a.click.assert_any_call(app.TOURNAMENT_CLOSE)),
+                 ('channel_window', lambda a: a.click.assert_any_call(app.CHANNEL_CANCEL_BUTTON)),
                  ('yes_no', lambda a: a.press.assert_called_with(0x20)),
-                 ('social_menu', lambda a: a.click.assert_called_with(app.SOCIAL_ICON))]
+                 ('social_menu', lambda a: a.click.assert_any_call(app.SOCIAL_ICON))]
         for kind, check in cases:
             a = self.host(); a.check_verification = Mock(return_value={'text': '', 'lines': []})
             kinds = iter([(kind, {}), ('spot', {})])
@@ -79,7 +79,16 @@ class RecoveryTests(unittest.TestCase):
         a = self.host(); a.check_verification = Mock(return_value={'text': '', 'lines': []})
         a.classify_screen = Mock(return_value=('tournament', {}))
         with self.assertRaisesRegex(RuntimeError, '处理了3次还在'): a.recover_screen()
-        self.assertEqual(a.click.call_count, 2)
+        self.assertEqual([c.args[0] for c in a.click.call_args_list], [app.TOURNAMENT_CLOSE, app.WORLD_FOCUS] * 2)
+
+    def test_closed_popup_over_the_spot_tries_5_before_the_route(self):
+        # 2026-10-23 琉璃市: the book menu was closed, the crowded water spot then looked "outdoor".
+        a = self.host(); a.pp_run = True; a.check_verification = Mock(return_value={'text': '', 'lines': []})
+        kinds = iter([('social_menu', {}), ('outdoor', {})])
+        a.classify_screen = Mock(side_effect=lambda im, d: next(kinds)); a.recover_pp = Mock()
+        self.assertEqual(a.recover_screen(), 'press5')
+        a.recover_pp.assert_not_called()
+        self.assertEqual([c.args[0] for c in a.click.call_args_list], [app.SOCIAL_ICON, app.WORLD_FOCUS])
 
     def test_at_start_only_windows_are_closed(self):
         a = self.host(); a.classify_screen = Mock(return_value=('outdoor', {}))

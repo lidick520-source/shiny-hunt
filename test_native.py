@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 import app
+import screen_state
 import native_bridge as bridge
 import test_safety
 
@@ -351,9 +352,18 @@ class NativeTests(unittest.TestCase):
 
     def test_channel_switch_stops_if_menu_is_wrong(self):
         pvp=[{'text':'匹配赛报名','x':810,'y':620,'w':70,'h':16}]
-        a=self.switch_host(['Ch.2'],[pvp])
-        with self.assertRaisesRegex(RuntimeError,'没找到「更换频道」'):a.switch()
+        a=self.switch_host(['Ch.2'],[pvp,pvp])
+        with patch.object(screen_state,'matches',return_value=False):
+            with self.assertRaisesRegex(RuntimeError,'没找到「更换频道」'):a.switch()
         self.assertEqual(a.click.call_count,1)                              # never clicks inside a wrong menu
+
+    def test_channel_switch_uses_the_fixed_row_when_ocr_misses_an_open_book_menu(self):
+        # 2026-10-23 琉璃市: the menu was open (template match) but OCR returned no 更换频道, 6 times.
+        a=self.switch_host(['Ch.2','频道2--当前频道','','频道3','Ch.3'],[[],[],self.LIST])
+        with patch.object(screen_state,'matches',return_value=True):
+            a.switch()
+        self.assertEqual(a.click.call_args_list[1][0][0],app.SOCIAL_CHANGE_CHANNEL)
+        self.assertIn('已切到频道3',a.say.call_args[0][0])
 
     def test_channel_switch_trusts_list_current_marker_over_hud(self):
         a=self.switch_host(['Ch.1','','','频道3','Ch.3'],[self.MENU,self.LIST])   # HUD misread as 1
