@@ -11,7 +11,7 @@ import re
 
 SPOTS = [
     {
-        'key': 'fanba', 'name': '帆巴市 · 轻飘飘', 'region': '合众', 'city': '帆巴市', 'targets': ['轻飘飘'],
+        'key': 'fanba', 'name': '帆巴市 · 轻飘飘', 'region': '合众', 'city': '帆巴市', 'targets': ['轻飘飘'], 'en': 'FRILLISH',
         # Vision sometimes reads the last character as 期/漂; 3 of the 5 names are enough evidence.
         'keyword': r'轻飘[飘期漂]', 'min_count': 3,
         # Verified 2026-10-18: the last D must be ~2.5 s (1.8 s stops 2-3 tiles short), plus a short nudge.
@@ -21,7 +21,7 @@ SPOTS = [
         'note': '2026-10-18 实机 227 轮、去医院 37 次通过',
     },
     {
-        'key': 'lilycove', 'name': '琉璃市 · 鲤鱼王', 'region': '丰缘', 'city': '琉璃市', 'targets': ['鲤鱼王'],
+        'key': 'lilycove', 'name': '琉璃市 · 鲤鱼王', 'region': '丰缘', 'city': '琉璃市', 'targets': ['鲤鱼王'], 'en': 'MAGIKARP',
         # 2026-10-20 real run: Vision read 3 of 5 names as traditional 鯉鱼王 -> count both forms.
         'keyword': r'[鲤鯉][鱼魚]', 'min_count': 3,
         # 2026-10-20 first real trip: the PokeLoop times ended in the door fade (step 9 frame black) and the
@@ -46,4 +46,4 @@ def target_count(text, spot):
 
 
 def summary():
-    return [{'key': s['key'], 'name': s['name'], 'verified': bool(s['verified'])} for s in SPOTS]
+    return [{'key': s['key'], 'name': s['name'], 'en': s.get('en', ''), 'verified': bool(s['verified'])} for s in SPOTS]

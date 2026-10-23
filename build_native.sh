@@ -9,7 +9,7 @@ cache="$PWD/.build/module-cache-$(print -rn -- "$PWD" | /usr/bin/shasum | cut -c
 trap 'rm -rf -- "$staging"' EXIT
 app_bundle="$staging/Mac刷闪助手.app"
 mkdir -p "$app_bundle/Contents/MacOS" "$app_bundle/Contents/Resources" .build
-/usr/bin/xcrun swiftc -parse-as-library -swift-version 5 -target arm64-apple-macos14.0 -O -module-cache-path "$cache" Native/ShinyHunt.swift -o "$app_bundle/Contents/MacOS/ShinyHunt" -framework SwiftUI -framework AppKit
+/usr/bin/xcrun swiftc -parse-as-library -swift-version 5 -target arm64-apple-macos14.0 -O -module-cache-path "$cache" Native/*.swift -o "$app_bundle/Contents/MacOS/ShinyHunt" -framework SwiftUI -framework AppKit
 cat > "$app_bundle/Contents/Info.plist" <<'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -36,5 +36,5 @@ if ! mv "$app_bundle" 'Mac刷闪助手.app'; then
   [[ ! -d "$staging/previous.app" ]] || mv "$staging/previous.app" 'Mac刷闪助手.app'
   exit 1
 fi
-/usr/bin/shasum -a 256 Native/ShinyHunt.swift build_native.sh > .build/native.sha256
+/usr/bin/shasum -a 256 Native/*.swift build_native.sh > .build/native.sha256
 rm -f .ui-build-required
