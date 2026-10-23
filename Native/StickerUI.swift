@@ -504,6 +504,7 @@ struct IdleBody: View {
                 Text(title).font(.system(size: 15, weight: .bold))
                 Text(detail).font(.system(size: 12)).foregroundStyle(Sticker.muted)
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .toggleStyle(.switch).tint(Color.go).disabled(!canChange)
     }
