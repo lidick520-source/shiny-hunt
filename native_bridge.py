@@ -151,6 +151,9 @@ class NativeEngine(App):
             try:
                 self.attach_game()
                 self.run()
+            except BrokenPipeError:
+                # The pipe to the Swift window is gone: the assistant window was quit or hung.
+                self.say('和助手界面的连接断了（界面被关掉或卡住），刷怪已停止；重新打开助手再按开始即可')
             except Exception as exc:
                 self.say(f'{exc}，已停止' if '已停止' not in str(exc) else str(exc))
             finally:
@@ -223,14 +226,17 @@ class NativeEngine(App):
             if app:app.activateWithOptions_(AppKit.NSApplicationActivateIgnoringOtherApps)
         except Exception:pass
         native_error = ''
-        for attempt in range(2):
-            deadline = time.monotonic() + 1.5
+        # Only the frontmost APP receives keys. 2026-10-24/25: the game window was the top window but the
+        # assistant (where 开始 was clicked) stayed the frontmost app; accepting "top window" skipped the
+        # Accessibility raise and 开始 then failed with 未绑定前台游戏 nine times in a row.
+        for attempt in range(3):
+            deadline = time.monotonic() + (1.0 if attempt == 0 else 1.5)
             while time.monotonic() < deadline:
-                if self.front_pid() == pid or self.top_window_pid() == pid:
+                if self.front_pid() == pid:
                     fg = foreground()
                     return fg if fg in valid else h
                 time.sleep(.05)
-            if attempt == 0 and self.emit_native:
+            if attempt < 2 and self.emit_native:
                 try:self.native_call('activate', pid=pid)
                 except RuntimeError as exc:native_error = str(exc)
         # 2026-10-20 real run failed here 5 times with no detail: record exactly what was seen.

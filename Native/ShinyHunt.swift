@@ -184,6 +184,9 @@ final class NativeInputDriver {
     @Published var shinyAlert = false
     @Published var catImage: NSImage?
     private var dockedFor = ""
+    // While hunting: no App Nap, no idle sleep, no display sleep. A sleeping display or a throttled
+    // assistant slows every key/click the engine asks for (2026-10-25 01:52: clicks took 6 s, then stopped).
+    private var huntActivity: NSObjectProtocol?
     let root: URL
     private var process: Process?
     private var input: FileHandle?
@@ -263,6 +266,7 @@ final class NativeInputDriver {
                 if let next = try? JSONDecoder().decode(EngineState.self, from: line) {
                     let before = state.protection
                     state = next; connected = true
+                    keepAwake(next.busy)
                     if next.protection == "闪光" && before != "闪光" { alertShiny() }
                     dockIfNeeded()
                     if next.previewRevision != previewRevision {
@@ -301,6 +305,15 @@ final class NativeInputDriver {
         try? input.write(contentsOf: data)
     }
     func set(_ key: String, _ value: Bool) { send("settings", [key: value]) }
+    func keepAwake(_ busy: Bool) {
+        if busy, huntActivity == nil {
+            huntActivity = ProcessInfo.processInfo.beginActivity(
+                options: [.userInitiated, .idleDisplaySleepDisabled, .latencyCritical], reason: "刷闪进行中")
+        } else if !busy, let activity = huntActivity {
+            ProcessInfo.processInfo.endActivity(activity)
+            huntActivity = nil
+        }
+    }
 
     // 出闪提醒 on this Mac (2026-10-19): sound, bounce the Dock icon, bring the assistant forward, pop up.
     func alertShiny() {

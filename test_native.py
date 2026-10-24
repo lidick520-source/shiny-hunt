@@ -75,6 +75,22 @@ class NativeTests(unittest.TestCase):
                 self.assertEqual(engine.bring_game_front(4321,42,[42]),42)
             self.assertEqual(calls,['activate'])
 
+    def test_game_window_on_top_is_not_enough_the_game_must_be_the_front_app(self):
+        # 2026-10-25 01:57: 开始 clicked in the assistant; the game window was the top window but the
+        # assistant stayed the front app, so no key would reach the game. Raise it through Accessibility.
+        with tempfile.TemporaryDirectory() as d:
+            engine=self.engine(Path(d));front=[999];calls=[]
+            engine.emit_native=lambda m:None
+            def native(op,**v):
+                calls.append(op)
+                if op=='activate':front[0]=4321
+            with patch.object(engine,'native_call',side_effect=native),patch.object(engine,'front_pid',side_effect=lambda:front[0]), \
+                 patch.object(engine,'top_window_pid',return_value=4321), \
+                 patch.object(bridge,'foreground',return_value=42),patch.object(bridge.time,'sleep'), \
+                 patch.object(bridge.AppKit.NSRunningApplication,'runningApplicationWithProcessIdentifier_',create=True):
+                self.assertEqual(engine.bring_game_front(4321,42,[42]),42)
+            self.assertEqual(calls,['activate'])
+
     def test_attach_without_game_explains(self):
         with tempfile.TemporaryDirectory() as d:
             engine=self.engine(Path(d))
