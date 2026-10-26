@@ -10,6 +10,20 @@ from PIL import Image
 import Quartz as Q
 import AppKit
 import ScreenCaptureKit as SC
+import functools
+import objc
+
+
+def pooled(fn):
+    """Run fn inside an Objective-C autorelease pool.
+    2026-10-26: the hunting loop runs in plain Python threads, which have no pool. Every capture left an
+    autoreleased ~1 MB PNG (plus window lists, events, app objects) behind that was never freed, so the
+    engine grew for as long as it ran and the Mac got slower and slower. A pool per call frees them at once."""
+    @functools.wraps(fn)
+    def run(*args, **kwargs):
+        with objc.autorelease_pool():
+            return fn(*args, **kwargs)
+    return run
 
 
 def accessibility_trusted():
@@ -18,6 +32,7 @@ def accessibility_trusted():
     return lib.AXIsProcessTrusted()
 
 
+@pooled
 def windows():
     return Q.CGWindowListCopyWindowInfo(Q.kCGWindowListOptionOnScreenOnly | Q.kCGWindowListExcludeDesktopElements, 0) or []
 
@@ -35,6 +50,7 @@ def targets():
     return [(w['kCGWindowNumber'], str(w.get('kCGWindowName', 'PokeMMO'))) for w in windows() if game_candidate(w['kCGWindowNumber'])]
 
 
+@pooled
 def foreground():
     app = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
     if not app:
@@ -114,6 +130,7 @@ class Backend:
             time.sleep(.03)
         raise RuntimeError('游戏未进入前台，已停止，未发送按键')
 
+    @pooled
     def move(self, point):
         with self.lock:
             if self.stop_event.is_set() or self.emergency_pressed():
@@ -123,6 +140,7 @@ class Backend:
             event = Q.CGEventCreateMouseEvent(None, Q.kCGEventMouseMoved, point, Q.kCGMouseButtonLeft)
             Q.CGEventPost(Q.kCGHIDEventTap, event)
 
+    @pooled
     def key(self, vk, down):
         code = self.KEYMAP.get(vk)
         if code is None: raise RuntimeError(f'未配置的 Mac 按键：{vk!r}')
@@ -138,6 +156,7 @@ class Backend:
             else:
                 self.keys.discard(code)
 
+    @pooled
     def repeat_held_key(self, vk):
         """Emit a macOS auto-repeat keyDown for an already held key.
 
@@ -158,6 +177,7 @@ class Backend:
             Q.CGEventSetIntegerValueField(event, Q.kCGKeyboardEventAutorepeat, 1)
             Q.CGEventPost(Q.kCGHIDEventTap, event)
 
+    @pooled
     def mouse(self, point, down):
         with self.lock:
             if down and (self.stop_event.is_set() or self.emergency_pressed()):
@@ -167,6 +187,7 @@ class Backend:
             Q.CGEventPost(Q.kCGHIDEventTap, event)
             self.mouse_down = point if down else None
 
+    @pooled
     def release_all(self):
         with self.lock:
             for code in list(self.keys):
@@ -189,6 +210,7 @@ class Backend:
             raise RuntimeError('macOS 截图失败：' + str(error))
         return value
 
+    @pooled
     def capture(self, h):
         if not Q.CGPreflightScreenCaptureAccess():
             raise RuntimeError('尚未授予屏幕录制权限')

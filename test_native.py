@@ -91,6 +91,18 @@ class NativeTests(unittest.TestCase):
                 self.assertEqual(engine.bring_game_front(4321,42,[42]),42)
             self.assertEqual(calls,['activate'])
 
+    def test_every_objc_call_site_on_python_threads_drains_its_autorelease_pool(self):
+        # 2026-10-26 memory growth: captures/window lists/events made on plain Python threads were
+        # autoreleased with no pool to drain them. Each such entry point must run inside a pool.
+        import mac_backend
+        for fn in (mac_backend.windows, mac_backend.foreground, mac_backend.Backend.capture, mac_backend.Backend.key,
+                   mac_backend.Backend.mouse, mac_backend.Backend.move, mac_backend.Backend.repeat_held_key,
+                   mac_backend.Backend.release_all, bridge.NativeEngine.front_pid, bridge.NativeEngine.top_window_pid,
+                   bridge.NativeEngine.game_app, bridge.NativeEngine.bring_game_front, bridge.NativeEngine.regain_focus):
+            self.assertTrue(hasattr(fn,'__wrapped__'),fn.__qualname__)
+        src=Path(bridge.__file__).read_text()
+        self.assertIn('with objc.autorelease_pool():',src.split('while not engine.closing:')[1][:80])
+
     def test_attach_without_game_explains(self):
         with tempfile.TemporaryDirectory() as d:
             engine=self.engine(Path(d))

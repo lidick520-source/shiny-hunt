@@ -9,13 +9,14 @@ import sys
 import threading
 import time
 import uuid
+import objc
 from app import App, BASE, backend, foreground, geometry, game_candidate, targets, title
 import app as _app
 
 def app_geometry(h):
     # Look up through the app module so tests patching app.geometry apply here too.
     return _app.geometry(h)
-from mac_backend import Q, info, AppKit, windows, accessibility_trusted
+from mac_backend import Q, info, AppKit, windows, accessibility_trusted, pooled
 from notifications import Notifier
 from pp_recovery import PPProgress, RecoverySequence
 
@@ -162,10 +163,12 @@ class NativeEngine(App):
         self.worker = threading.Thread(target=work, daemon=True)
         self.worker.start()
 
+    @pooled
     def game_app(self):
         apps = AppKit.NSWorkspace.sharedWorkspace().runningApplications()
         return next((a for a in apps if 'pokemmo' in str(a.localizedName() or '').lower()), None)
 
+    @pooled
     def attach_game(self):
         # Find the open PokeMMO window, bring it to the front and calibrate from it. Replaces the preview step.
         self.mode = '寻找游戏窗口'
@@ -214,10 +217,12 @@ class NativeEngine(App):
         pid = getattr(self, 'game_pid', None)
         if pid:self.bring_game_front(pid, self.bound_window, [self.bound_window])
 
+    @pooled
     def front_pid(self):
         front = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
         return front.processIdentifier() if front else None
 
+    @pooled
     def bring_game_front(self, pid, h, valid):
         # 1) ask macOS to activate the game; 2) if that is refused, the Swift app raises it through
         # Accessibility (works even while the assistant is the active app). Then use the game's front window.
@@ -250,6 +255,7 @@ class NativeEngine(App):
                                '请到 系统设置 → 隐私与安全性 → 辅助功能，把「Mac刷闪助手」关掉再打开')
         raise RuntimeError('游戏没能切到前台：请点一下游戏窗口再按开始')
 
+    @pooled
     def top_window_pid(self):
         # Front-to-back window list: owner of the topmost normal window (the assistant's own counts:
         # if it is on top, the game is NOT in front and no key may be sent).
@@ -260,6 +266,7 @@ class NativeEngine(App):
         except Exception:pass
         return None
 
+    @pooled
     def regain_focus(self):
         # Keep the game in front: whatever took the focus, give it back to the game and carry on.
         front = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
@@ -562,6 +569,22 @@ class NativeEngine(App):
         self.release_inputs()
 
 
+def memory_note(engine):
+    """Every 10 minutes: resident memory of the window, the engine and the OCR helper, so growth shows in run.log."""
+    import subprocess
+    pids = {'界面': os.getppid(), '后台': os.getpid()}
+    ocr = getattr(getattr(engine, 'ocr', None), 'process', None)
+    if ocr is not None and getattr(ocr, 'pid', None):pids['识字'] = ocr.pid
+    try:
+        out = subprocess.run(['ps', '-o', 'pid=,rss=', '-p', ','.join(str(p) for p in pids.values())],
+                             capture_output=True, text=True, timeout=3).stdout
+        rss = {int(a): int(b) for a, b in (line.split() for line in out.strip().splitlines())}
+    except Exception:
+        return ''
+    parts = [f'{name} {rss[pid] // 1024} MB' for name, pid in pids.items() if pid in rss]
+    return '内存：' + '，'.join(parts) if parts else ''
+
+
 def main():
     commands = queue.Queue()
     output_lock = threading.Lock()
@@ -588,7 +611,9 @@ def main():
     signal.signal(signal.SIGINT, lambda *_: commands.put({'action':'shutdown'}))
     threading.Thread(target=read_commands, daemon=True).start()
     try:
+        next_memory_log = time.monotonic() + 600
         while not engine.closing:
+          with objc.autorelease_pool():
             try:
                 command = commands.get(timeout=.15)
                 try:
@@ -598,6 +623,10 @@ def main():
                     emit({'type':'error','message':str(exc)})
             except queue.Empty:
                 pass
+            if time.monotonic() >= next_memory_log:
+                next_memory_log = time.monotonic() + 600
+                note = memory_note(engine)
+                if note:engine.say(note)
             while not engine.events.empty():
                 emit({'type':'log','message':engine.events.get(),'time':time.strftime('%H:%M:%S')})
             emit(engine.snapshot())
