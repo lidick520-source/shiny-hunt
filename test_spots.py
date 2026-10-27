@@ -23,10 +23,11 @@ class SpotTests(unittest.TestCase):
             if spot['surf']:
                 self.assertEqual([s[0] for s in seq.steps[-4:]], ['press', 'wait', 'press', 'wait'])
 
-    def test_lilycove_is_listed_as_not_yet_verified(self):
+    def test_lilycove_is_verified(self):
+        # 2026-10-27: the user confirmed the 琉璃市 spot after the long runs of 10-23..10-26.
         lily = spots.get('lilycove')
-        self.assertEqual(lily['targets'], ['鲤鱼王']); self.assertFalse(lily['verified'])
-        self.assertIsNone(lily['spot_water'])                                 # not measured until real screenshots
+        self.assertEqual(lily['targets'], ['鲤鱼王']); self.assertTrue(lily['verified'])
+        self.assertIsNone(lily["spot_water"])   # water share does not tell shore from spot here (crowded, huge lake)
         self.assertTrue(spots.get('fanba')['verified'])
 
     def test_target_count(self):

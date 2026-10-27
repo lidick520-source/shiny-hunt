@@ -29,8 +29,8 @@ SPOTS = [
         # then over-hold S - the water straight below blocks the walk exactly at the shore - plus a short nudge.
         'route': [('S', 1.5, 1.8, '走出医院'), ('door', 3.0, 3.0, '等出门黑屏结束'),
                   ('S', 2.0, 2.2, '向下走到岸边'), ('S', .5, .7, '再补按S贴到岸边（已在岸边则不动）')],
-        'surf': True, 'spot_water': None, 'verified': False,
-        'note': '2026-10-20 第一次回院停在岸上，已改为等黑屏+多按S，待再测',
+        'surf': True, 'spot_water': None, 'verified': True,
+        'note': '2026-10-23~27 实机长跑通过（回院路线、换频道、繁体鯉都已验证）',
     },
 ]
 
