@@ -441,6 +441,13 @@ class NativeTests(unittest.TestCase):
         self.assertEqual([c[0][0] for c in a.click.call_args_list[-2:]],[app.shifted(app.CHANNEL_CANCEL_BUTTON,app.CHANNEL_COOLDOWN_DY),app.WORLD_FOCUS])
         self.assertEqual(a.next_switch,a.elapsed+600)
 
+    def test_dropdown_misread_as_channel_31_is_channel_3(self):
+        # 2026-10-26 23:14: 「频道3 -- 当前频道」 came back as 频道31; the switch went to channel 1 instead of 4.
+        rows=[{'text':f'频道{n}','x':489,'y':303+27*n,'w':36,'h':16} for n in range(1,6)]
+        a=self.switch_host(['Ch.','频道31','','频道4','Ch.4'],[self.MENU,rows])
+        a.switch()
+        self.assertIn('已切到频道4',a.say.call_args[0][0])
+
     def test_channel_switch_trusts_list_current_marker_over_hud(self):
         a=self.switch_host(['Ch.1','','','频道3','Ch.3'],[self.MENU,self.LIST])   # HUD misread as 1
         a.switch()

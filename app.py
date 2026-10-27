@@ -101,7 +101,7 @@ def channel_window_score(im):
 def shifted(rect,dy):
  return (rect[0],rect[1]+dy)+tuple(rect[2:])
 def hud_channel(text):
- m=re.search(r'Ch\.?\s*(\d+)',str(text or ''));return int(m.group(1)) if m else None
+ m=re.search(r'Ch\.?\s*([1-9])',str(text or ''));return int(m.group(1)) if m else None
 _CN_VARIANTS=str.maketrans({'換':'换','頻':'频','當':'当','變':'变','選':'选'})
 def cn_norm(text):
  return re.sub(r'\s+','',str(text or '')).translate(_CN_VARIANTS)
@@ -501,6 +501,10 @@ class App:
      # and the next recovery walks the route.
      probed=True;self.say('  刚收起弹窗，人应该还在原地：先按 5 试一次');return 'press5'
     if not self.pp_run:
+     if kind in ('unknown','outdoor') and not probed:
+      # PP果定点 has no map of its spot: a crowd or a channel change can make the spot look foreign.
+      # The player rarely moves on his own, so try 5 once; no battle -> the next recovery stops.
+      probed=True;self.say('  PP果定点：先按 5 试一次，进了战斗就说明还在原地');return 'press5'
      if kind=='unknown' or kind=='outdoor':
       raise RuntimeError(f'自动恢复：PP果定点模式下不在原来的点位（{screen_state.LABELS[kind]}），这个模式不会自己走回去，已停止')
     if route_done:raise RuntimeError('自动恢复：已经重走过一次去医院的路线，还是没回到刷怪点，已停止')
@@ -552,7 +556,7 @@ class App:
   Reopen the window: its dropdown names the current channel, and the cooldown row only exists right after a change."""
   score,dy=self.open_channel_window()
   if score<.8:raise RuntimeError(f'切换后重新打开换频道窗口失败（相似度 {score:.2f}），无法确认是否切到频道{target}，已停止')
-  current=cn_norm(self.read(shifted(CHANNEL_DROPDOWN_READ,dy)));m=re.search(r'频道(\d+)',current)
+  current=cn_norm(self.read(shifted(CHANNEL_DROPDOWN_READ,dy)));m=re.search(r'频道([1-9])',current)
   self.click(shifted(CHANNEL_CANCEL_BUTTON,dy));self.wait(.6);self.defocus_ui()
   if m and int(m.group(1))==target:return f'窗口显示当前是频道{target}'
   if m:raise RuntimeError(f'切换后窗口显示当前是频道{m.group(1)}，不是频道{target}，已停止')
@@ -582,7 +586,7 @@ class App:
    self.click(shifted(CHANNEL_CANCEL_BUTTON,dy));self.wait(.6);self.defocus_ui()
    self.next_switch=self.elapsed+600;self.say('  换频道窗口在冷却中（刚换过频道），已关掉，10 分钟后再换');return
   if score<.8:raise RuntimeError(f'没看到换频道窗口（和真实截图的相似度 {score:.2f}），已停止，截图在 diagnostics/channel-switch')
-  current=cn_norm(self.read(CHANNEL_DROPDOWN_READ));m=re.search(r'频道(\d+)',current)
+  current=cn_norm(self.read(CHANNEL_DROPDOWN_READ));m=re.search(r'频道([1-9])',current)
   old=hud_before or (int(m.group(1)) if m else None)
   if not old:raise RuntimeError(f'读不出当前频道（左上角和下拉框都没读到），已停止')
   self.say(f'  换频道窗口已确认（相似度 {score:.2f}），当前频道：{old}')
@@ -591,7 +595,7 @@ class App:
   self.click(CHANNEL_DROPDOWN);self.wait(.6);log('点开频道下拉列表')
   options={};listed_current=None
   for l in lines():
-   t=cn_norm(l['text']);mm=re.match(r'频道(\d+)',t)
+   t=cn_norm(l['text']);mm=re.match(r'频道([1-9])',t)
    if not mm or not 322<=l['y']<=520:continue
    if '当前' in t:listed_current=int(mm.group(1));continue   # never click the row of the channel we are on
    options[int(mm.group(1))]=(int(l['x'])-10,int(l['y'])-4,int(l['w'])+20,int(l['h'])+8)
@@ -605,7 +609,7 @@ class App:
    self.say(f'  列表文字没读到，按真实截图量好的行位置选择（共{CHANNEL_COUNT}个频道）')
   ordered=sorted(options);target=next((c for c in ordered if c>old),ordered[0])
   self.click(options[target]);self.wait(.6);log(f'在列表里点「频道{target}」')
-  chosen=cn_norm(self.read(CHANNEL_DROPDOWN_READ));picked=re.search(r'频道(\d+)',chosen)
+  chosen=cn_norm(self.read(CHANNEL_DROPDOWN_READ));picked=re.search(r'频道([1-9])',chosen)
   if picked and int(picked.group(1))!=target:raise RuntimeError(f'下拉框显示的是{picked.group(0)}，不是频道{target}，已停止')
   if channel_window_score(self.capture())<.8:raise RuntimeError('选完频道后换频道窗口不见了，已停止，截图在 diagnostics/channel-switch')
   if not picked:self.say(f'  下拉框文字没读到，窗口仍在；点变更后用左上角 Ch.{target} 最终确认')
@@ -663,7 +667,14 @@ class App:
       self.ensure()
       if self.rest_until>time.monotonic():
        self.mode='休息';self.check_verification(self.capture());self.wait(1);continue
-      if self.rest_until:deadline=time.monotonic()+45
+      if self.rest_until:
+       deadline=time.monotonic()+45
+       # 2026-10-26 21:41: after a channel change other players stand around the spot, the start reference
+       # (two patches of the map) no longer matched (0.81 < 0.92) and the run stopped. The player has not
+       # moved: if the screen is a plain map, learn the reference again from it.
+       first=self.capture();data=self.check_verification(first)
+       if not self.battle_evidence(data) and not self.blocking_ui(first,data) and not self.det.map(first):
+        self.wait(.4);self.det.set_map_reference(first,self.capture());self.say('换完频道周围的人变了：按当前画面重新记录起点')
       self.rest_until=0;self.mode='刷怪';im=self.capture();data=self.check_verification(im);on_map=self.det.map(im)
       if state=='ready':
        if time.monotonic()-last_diagnostic>=5:

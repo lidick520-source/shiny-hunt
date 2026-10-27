@@ -63,11 +63,24 @@ class RecoveryTests(unittest.TestCase):
 
     def test_ppberry_spot_never_walks_the_hospital_route(self):
         # PP果定点: the spot can be anywhere, so off the spot it stops instead of pressing 4.
+        # 2026-10-26: first it tries 5 once (a crowd or a channel change can make the spot look foreign).
         for kind in ('outdoor', 'unknown', 'pc_hall'):
             a = self.host(); a.pp_run = False; a.check_verification = Mock(return_value={'text': 'Ch.1', 'lines': []})
             a.classify_screen = Mock(return_value=(kind, {})); a.recover_pp = Mock()
+            if kind != 'pc_hall':
+                self.assertEqual(a.recover_screen(), 'press5', kind)
+                a.recover_pp.assert_not_called(); self.assertNotIn(0x34, [c.args[0] for c in a.press.call_args_list])
+                continue
             with self.assertRaisesRegex(RuntimeError, 'PP果定点'): a.recover_screen()
             a.recover_pp.assert_not_called(); self.assertNotIn(0x34, [c.args[0] for c in a.press.call_args_list])
+
+    def test_ppberry_probe_is_spent_once_per_recovery(self):
+        # Within one recovery: after the 5-probe was used, a foreign screen stops (handled by the 3-per-10-min cap
+        # across recoveries). Here: a closed popup first spends nothing, the second foreign screen probes.
+        a = self.host(); a.pp_run = False; a.check_verification = Mock(return_value={'text': 'Ch.1', 'lines': []})
+        kinds = iter([('social_menu', {}), ('outdoor', {})])
+        a.classify_screen = Mock(side_effect=lambda im, d: next(kinds)); a.recover_pp = Mock()
+        self.assertEqual(a.recover_screen(), 'press5'); a.recover_pp.assert_not_called()
 
     def test_ppberry_spot_is_not_judged_by_water(self):
         a = self.host(); a.task_mode = 'fixed'; a.det = Mock(); a.det.map.return_value = False; a.det.menu.return_value = False
