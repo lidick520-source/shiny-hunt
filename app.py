@@ -286,6 +286,17 @@ class App:
   try:self.wait(random.uniform(.08,.14))
   finally:self.mouse_event(point,False)
   return point
+ def slow_click(self,rect):
+  # 2026-10-27 21:59 龙穴: three quick clicks on 逃跑 were ignored (menu stayed). Last try: rest the
+  # pointer on the button, nudge it, then a longer press - what a person's click looks like.
+  if self.mode=='切换频道':self.check_verification(self.capture())
+  point=random_point(self.ensure(),rect)
+  self.ensure();self.move_event((point[0]-3,point[1]-2));self.wait(.2)
+  self.ensure();self.move_event(point);self.wait(.3)
+  self.ensure();self.mouse_event(point,True)
+  try:self.wait(random.uniform(.22,.3))
+  finally:self.mouse_event(point,False)
+  return point
  def key_event(self,key,down):backend.key(key,down)
  def repeat_event(self,key):backend.repeat_held_key(key)
  def move_event(self,point):backend.move(point)
@@ -645,7 +656,7 @@ class App:
     self.say('OCR预热完成，已记录当前起点画面')
    while True:
     try:
-     state='ready';deadline=time.monotonic()+45;last_combat_log=0;key_sent=time.monotonic();key_retry=False;rounds=0;return_log=0;last_escape_click=0;escape_retries=0;escape_success=False;hud_frames=0
+     state='ready';partial_since=None;deadline=time.monotonic()+45;last_combat_log=0;key_sent=time.monotonic();key_retry=False;rounds=0;return_log=0;last_escape_click=0;escape_retries=0;escape_success=False;hud_frames=0
      if resume=='battle':
       state='battle';key_retry=True;deadline=time.monotonic()+55
      elif resume=='press5':
@@ -680,6 +691,15 @@ class App:
        if time.monotonic()-last_diagnostic>=5:
         tree=self.det.score(im,'map_tree');bridge=self.det.score(im,'map_bridge');self.say(f'确认返回本轮起点：参考区1={tree:.3f} / 参考区2={bridge:.3f}');last_diagnostic=time.monotonic()
        stable=stable+1 if (on_map and not self.battle_evidence(data)) else 0
+       if not on_map and not self.battle_evidence(data):
+        # 2026-10-27 21:03: one reference patch at 0.99, the other 0.80-0.85 for 45 s (a player stood on it)
+        # -> timeout. Same place, so after 8 s of "half match" on a plain map, learn the reference again.
+        half=max(self.det.score(im,'map_tree'),self.det.score(im,'map_bridge'))>=.95
+        partial_since=(partial_since or time.monotonic()) if half else None
+        if half and time.monotonic()-partial_since>=8 and not self.blocking_ui(im,data):
+         self.wait(.3);self.det.set_map_reference(im,self.capture());partial_since=None
+         self.say('起点有一块被别的玩家挡住了：按当前画面重新记录起点')
+       else:partial_since=None
        if stable>=2:
         ui=self.blocking_ui(im,data)
         if ui:raise RuntimeError(f'刷怪点被「{screen_state.LABELS[ui]}」挡住了，没有按5')
@@ -749,7 +769,9 @@ class App:
         if guard['escape_image_hit']:
          fresh=self.check_verification(self.capture())
          if not escape_region(fresh):raise RuntimeError('重试前无法再次确认逃跑菜单，已停止')
-         self.click(escape_button_area(escape_region(fresh)));escape_retries+=1;last_escape_click=time.monotonic();self.say(f'逃跑菜单仍在，已复查并发送重试点击（{escape_retries}/2），等待游戏确认')
+         area=escape_button_area(escape_region(fresh))
+         (self.slow_click if escape_retries==1 else self.click)(area);escape_retries+=1;last_escape_click=time.monotonic()
+         self.say(f'逃跑菜单仍在，已复查并发送重试点击（{escape_retries}/2{"，慢速点击" if escape_retries==2 else ""}），等待游戏确认')
        if stable>=2:
         rounds+=1;self.total_rounds+=1
         if self.pp_run:due=self.pp_progress.encounter_done();self.say(f'第{rounds}轮完成；PP {self.pp_progress.completed}/6')

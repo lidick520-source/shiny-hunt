@@ -144,6 +144,7 @@ class NativeEngine(App):
         self.focus_regains = 0; self.assistant_since = None
         self.notifier.new_session()
         self.protection = None
+        self.recoveries = []   # 2026-10-27 22:08: a fresh 开始 inherited the 3-per-10-min count of the run before
         self.last_reason = ''
         self.stop_event.clear()
         self.mode = '正在启动'
@@ -247,13 +248,24 @@ class NativeEngine(App):
         # 2026-10-20 real run failed here 5 times with no detail: record exactly what was seen.
         try:trusted = '有' if accessibility_trusted() else '没有'
         except Exception:trusted = '未知'
-        front = self.front_pid(); top = self.top_window_pid()
-        self.say(f'  切前台失败详情：游戏进程 {pid}，macOS 记录的前台进程 {front}，屏幕最上层窗口的进程 {top}，'
+        front = self.front_pid(); top = self.top_window_pid(); front_name = self.app_name(front)
+        self.say(f'  切前台失败详情：游戏进程 {pid}，macOS 记录的前台进程 {front}（{front_name or "未知"}），屏幕最上层窗口的进程 {top}，'
                  f'辅助功能授权：{trusted}，助手拉前台的结果：{native_error or "没有报错"}')
+        if front_name in ('loginwindow', 'ScreenSaverEngine'):
+            # 2026-10-28 08:05: ten 开始 presses while the Mac was locked / just woken (front process = loginwindow).
+            raise RuntimeError('Mac 还在锁屏或屏保：先解锁屏幕，点一下游戏窗口，再按开始')
         if trusted == '没有' or '辅助功能' in native_error:
             raise RuntimeError('游戏没能切到前台：「Mac刷闪助手」的辅助功能权限失效了（重新编译后系统可能不认了）。'
                                '请到 系统设置 → 隐私与安全性 → 辅助功能，把「Mac刷闪助手」关掉再打开')
         raise RuntimeError('游戏没能切到前台：请点一下游戏窗口再按开始')
+
+    @pooled
+    def app_name(self, pid):
+        try:
+            app = AppKit.NSRunningApplication.runningApplicationWithProcessIdentifier_(pid) if pid else None
+            return str(app.localizedName() or '') if app else ''
+        except Exception:
+            return ''
 
     @pooled
     def top_window_pid(self):

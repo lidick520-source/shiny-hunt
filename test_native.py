@@ -103,6 +103,24 @@ class NativeTests(unittest.TestCase):
         src=Path(bridge.__file__).read_text()
         self.assertIn('with objc.autorelease_pool():',src.split('while not engine.closing:')[1][:80])
 
+    def test_locked_screen_says_unlock_first(self):
+        # 2026-10-28 08:05: ten 开始 presses while macOS showed the lock screen (front process loginwindow).
+        with tempfile.TemporaryDirectory() as d:
+            engine=self.engine(Path(d));engine.emit_native=lambda m:None
+            with patch.object(engine,'native_call'),patch.object(engine,'front_pid',return_value=763), \
+                 patch.object(engine,'top_window_pid',return_value=680),patch.object(engine,'app_name',return_value='loginwindow'), \
+                 patch.object(bridge,'accessibility_trusted',return_value=True),patch.object(bridge.time,'sleep'), \
+                 patch.object(bridge.AppKit.NSRunningApplication,'runningApplicationWithProcessIdentifier_',create=True):
+                with self.assertRaisesRegex(RuntimeError,'锁屏'):engine.bring_game_front(680,42,[42])
+
+    def test_new_start_does_not_inherit_the_recovery_count(self):
+        # 2026-10-27 22:08: 开始 right after a run that used 3 recoveries could not recover once.
+        with tempfile.TemporaryDirectory() as d:
+            engine=self.engine(Path(d));engine.recoveries=[bridge.time.monotonic()]*3
+            with patch.object(engine,'require_permissions'),patch.object(engine,'attach_game'),patch.object(engine,'run'):
+                engine.command({'action':'start'});engine.worker.join(2)
+            self.assertEqual(engine.recoveries,[])
+
     def test_attach_without_game_explains(self):
         with tempfile.TemporaryDirectory() as d:
             engine=self.engine(Path(d))
