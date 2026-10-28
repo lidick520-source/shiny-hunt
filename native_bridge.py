@@ -16,7 +16,7 @@ import app as _app
 def app_geometry(h):
     # Look up through the app module so tests patching app.geometry apply here too.
     return _app.geometry(h)
-from mac_backend import Q, info, AppKit, windows, accessibility_trusted, pooled
+from mac_backend import Q, info, AppKit, windows, accessibility_trusted, pooled, focused_pid
 from notifications import Notifier
 from pp_recovery import PPProgress, RecoverySequence
 
@@ -145,6 +145,7 @@ class NativeEngine(App):
         self.notifier.new_session()
         self.protection = None
         self.recoveries = []   # 2026-10-27 22:08: a fresh 开始 inherited the 3-per-10-min count of the run before
+        self._patience_used = False
         self.last_reason = ''
         self.stop_event.clear()
         self.mode = '正在启动'
@@ -220,8 +221,7 @@ class NativeEngine(App):
 
     @pooled
     def front_pid(self):
-        front = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
-        return front.processIdentifier() if front else None
+        return focused_pid()
 
     @pooled
     def bring_game_front(self, pid, h, valid):
@@ -281,8 +281,7 @@ class NativeEngine(App):
     @pooled
     def regain_focus(self):
         # Keep the game in front: whatever took the focus, give it back to the game and carry on.
-        front = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
-        front_pid = front.processIdentifier() if front else None
+        front_pid = focused_pid()
         if front_pid == os.getppid():
             # The assistant itself is in front: the user may be about to press 停止. Give them 4 seconds.
             self.release_inputs()

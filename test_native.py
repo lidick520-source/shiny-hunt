@@ -121,6 +121,19 @@ class NativeTests(unittest.TestCase):
                 engine.command({'action':'start'});engine.worker.join(2)
             self.assertEqual(engine.recoveries,[])
 
+    def test_front_app_is_asked_through_accessibility_not_a_stale_nsworkspace(self):
+        # 2026-10-28 08:05: NSWorkspace in the engine kept reporting an old app (91585 / 763) while the game
+        # was on top; Accessibility gives the live answer.
+        import sys, mac_backend
+        ax=Mock();ax.AXUIElementCopyAttributeValue.return_value=(0,'game-app');ax.AXUIElementGetPid.return_value=(0,680)
+        stale=Mock();stale.processIdentifier.return_value=91585
+        with patch.dict(sys.modules,{'ApplicationServices':ax}), \
+             patch.object(mac_backend.AppKit.NSWorkspace,'sharedWorkspace',create=True) as ws:
+            ws.return_value.frontmostApplication.return_value=stale
+            self.assertEqual(mac_backend.focused_pid(),680)
+            ax.AXUIElementCopyAttributeValue.return_value=(-25204,None)              # AX refused -> old way
+            self.assertEqual(mac_backend.focused_pid(),91585)
+
     def test_attach_without_game_explains(self):
         with tempfile.TemporaryDirectory() as d:
             engine=self.engine(Path(d))

@@ -51,11 +51,29 @@ def targets():
 
 
 @pooled
-def foreground():
+def focused_pid():
+    """The app that really has the keyboard, asked through Accessibility.
+    2026-10-28 08:05 and 2026-10-25 01:57: NSWorkspace.frontmostApplication in this background Python process
+    kept reporting an old app (it is only refreshed by notifications on a run loop this process never runs),
+    so 开始 failed ten times although the game was on top. Accessibility asks the window server live."""
+    try:
+        import ApplicationServices as AS
+        err, app = AS.AXUIElementCopyAttributeValue(AS.AXUIElementCreateSystemWide(), 'AXFocusedApplication', None)
+        if err == 0 and app is not None:
+            err, pid = AS.AXUIElementGetPid(app, None)
+            if err == 0 and pid:
+                return int(pid)
+    except Exception:
+        pass
     app = AppKit.NSWorkspace.sharedWorkspace().frontmostApplication()
-    if not app:
+    return app.processIdentifier() if app else None
+
+
+@pooled
+def foreground():
+    pid = focused_pid()
+    if not pid:
         return None
-    pid = app.processIdentifier()
     return next((w['kCGWindowNumber'] for w in windows() if w.get('kCGWindowOwnerPID') == pid and w.get('kCGWindowLayer') == 0), None)
 
 

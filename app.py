@@ -713,9 +713,15 @@ class App:
         self.diagnostic(im,data,'battle');self.say(('已找到逃跑文字位置' if button else '未找到逃跑菜单')+'；当前OCR：'+data['text'][:180]);last_combat_log=time.monotonic()
        if not button and on_map and not self.battle_evidence(data) and time.monotonic()-key_sent>8 and not key_retry:
         self.say('仍是起点地图，重新检查画面后重试5一次');self.press(0x35,virtual=True);key_retry=True;key_sent=time.monotonic()
+       elif not button and on_map and not self.battle_evidence(data) and key_retry and time.monotonic()-key_sent>12 and not getattr(self,'_patience_used',False):
+        # 2026-10-27 21:59-22:08 龙穴: the game ignored three escape clicks, then 5 twice, and answered
+        # again 20 minutes later - a server stall, not a broken setup. Wait once more before giving up.
+        self._patience_used=True;self.say('游戏 20 秒没反应（可能是服务器卡顿），等 15 秒再按一次 5')
+        self.wait(15);self.press(0x35,virtual=True);key_sent=time.monotonic()
        elif not button and on_map and not self.battle_evidence(data) and key_retry and time.monotonic()-key_sent>12:
         raise RuntimeError('重试后仍是地图，游戏未触发技能；请检查5的绑定及输入权限。诊断截图已保存')
        if button:
+        self._patience_used=False
         spot=self.current_spot()
         if getattr(self,'task_mode','fixed')=='frillish' and spots.target_count(data.get('text',''),spot)<spot['min_count']:
          self.diagnostic(im,data,'protected');raise RuntimeError(f'白嫖闪：未确认是{"/".join(spot["targets"])}群，已停止，未点击逃跑')
@@ -761,8 +767,9 @@ class App:
         self.diagnostic(im,{**data,'map_surface_scores':map_surface_scores(im),'map_template_scores':[self.det.score(im,'map_tree'),self.det.score(im,'map_bridge')],'ocr_map':bool(ocr_map),'escape_success_seen':escape_success,'hud_only_frames':hud_frames,'return_stable':stable},'return')
         self.say(f'确认逃跑结果：菜单={bool(button)}，成功逃脱提示={escape_success}，地图恢复={restored}（图像={on_map}，文字={bool(ocr_map)}，连续HUD帧={hud_frames}）')
         return_log=time.monotonic()
-       if button and escape_retries>=2 and time.monotonic()-last_escape_click>=4:
-        raise RuntimeError('已发送三次逃跑点击，但菜单仍在；已停止，请检查是否有遮挡或游戏未接收点击')
+       if button and escape_retries>=2 and time.monotonic()-last_escape_click>=20:
+        # Server stalls (2026-10-27 21:59) can hold the menu for a while: give the game 20 s, not 4.
+        raise RuntimeError('已发送三次逃跑点击，又等了 20 秒菜单仍在；已停止，请检查是否有遮挡或游戏未接收点击')
        if button and time.monotonic()-last_escape_click>=2 and escape_retries<2:
         guard=self.original_flash_guard(im,button)
         if guard['matched']:raise RuntimeError('重试逃跑前原闪光规则命中，已停止')
