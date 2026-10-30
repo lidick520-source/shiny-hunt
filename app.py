@@ -84,7 +84,7 @@ WALK_ESCAPE_RETRIES=6                         # a single wild Pokemon can block 
 def channel_interval():
  # User 2026-10-18: change channel at a random moment, every 40-50 minutes (not a fixed 50).
  return random.randint(2400,3000)
-NO_RECOVERY=('闪光','验证','手动停止','F8','已关闭','缺少屏幕录制','尚未授予','窗口为','原生输入','六次遭遇完成','轻飘飘全自动','未确认是','路线测试','游戏已关闭','切不回前台','没找到 PokeMMO','自动恢复')
+NO_RECOVERY=('关服','闪光','验证','手动停止','F8','已关闭','缺少屏幕录制','尚未授予','窗口为','原生输入','六次遭遇完成','轻飘飘全自动','未确认是','路线测试','游戏已关闭','切不回前台','没找到 PokeMMO','自动恢复')
 def CHANNEL_ROW(n):return (446,338+27*(n-1)-9,132,18)   # 频道1 y=338, step 27 (real screenshots)
 CHANNEL_WINDOW_BOX=(424,322,600,488)   # checkbox + 变更/取消, cut from the real screenshot (assets/channel_window.png)
 # 2026-10-23 琉璃市: right after a change the window shows a 「下次切换: N秒后」 row on top and everything
@@ -109,7 +109,14 @@ def channel_window_score(im):
 def shifted(rect,dy):
  return (rect[0],rect[1]+dy)+tuple(rect[2:])
 def hud_channel(text):
- m=re.search(r'Ch\.?\s*([1-9])',str(text or ''));return int(m.group(1)) if m else None
+ # Old HUD (until 2026-10-30): 「Ch.2」. Game update 2026-10-31: 「城镇 · 频道1」.
+ m=re.search(r'(?:Ch\.?|频道)\s*([1-9])(?!\d)',str(text or ''));return int(m.group(1)) if m else None
+SERVER_SHUTDOWN=re.compile(r'服务器关闭|关服说明')
+def new_game_ui(data):
+ # The 2026-10-31 PokeMMO update moved the HUD and the bottom-right icon bar: the HUD line reads
+ # 「城镇·频道1」 instead of 「Ch.1」. The old channel-menu positions do not apply there.
+ top=' '.join(l['text'] for l in data.get('lines',[]) if l.get('y',999)<40)
+ return bool(re.search(r'城镇|频道',top)) and not re.search(r'Ch\.?\s*\d',top)
 _CN_VARIANTS=str.maketrans({'換':'换','頻':'频','當':'当','變':'变','選':'选'})
 def cn_norm(text):
  return re.sub(r'\s+','',str(text or '')).translate(_CN_VARIANTS)
@@ -251,6 +258,9 @@ class App:
   data=data if data is not None else self.ocr.scan(im)
   if '验证码' in data['text']:
    self.protection='验证';self.stop_event.set();self.diagnostic(im,data,'verification');raise RuntimeError('检测到验证码，已停止，请人工处理')
+  if SERVER_SHUTDOWN.search(re.sub(r'\s+','',data['text'])):
+   # 2026-10-30 21:42: 「5 分 0 秒后服务器关闭. 请退出游戏.」 (event update). Nothing to recover: stop and say so.
+   self.diagnostic(im,data,'protected');raise RuntimeError('游戏提示服务器要关服维护，已停止；更新完再开游戏、按开始')
   return data
  def halt(self,text):
   already=self.stop_event.is_set();self.stop_event.set();self.release_inputs()
@@ -609,7 +619,12 @@ class App:
     if re.search(pattern,t) and y0<=l['y']<=y1:return t,(int(l['x'])-8,int(l['y'])-4,int(l['w'])+16,int(l['h'])+8)
    return None,None
   log('当前画面')
-  hud_before=hud_channel(self.read((0,0,330,30)))
+  hud_text=self.read((0,0,330,30));hud_before=hud_channel(hud_text)
+  if new_game_ui({'lines':[{'y':10,'text':hud_text}]}):
+   # Clicking the old icon position now opens the 孵蛋器 window (2026-10-31 01:30-02:09, five times),
+   # then the recovery walked the whole hospital route. Until the new entry is measured: no clicks.
+   self.next_switch=self.elapsed+channel_interval()
+   self.say('  游戏更新后换了新界面，换频道入口还没重新量过：这次先不换，继续刷');return
   # Positions verified on real screenshots 2026-10-18 18:14-18:19 (game window coordinates).
   score,dy=self.open_channel_window(log)
   if score>=.8 and dy>5:
