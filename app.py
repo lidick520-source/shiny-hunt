@@ -55,6 +55,10 @@ def frillish_count(text):
 def map_surface_scores(im):
  # These strips are black outside the recorded battle viewport, colored on map.
  return tuple(float((np.asarray(im.crop(rect)).max(axis=2)>24).mean()) for rect in [(20,180,115,600),(160,630,780,700)])
+def map_view(im):
+ # The battle scene leaves black bars where the map was drawn; the HUD text stays in both, so OCR alone
+ # cannot tell a battle intro from the map (sim frames: map 1.00/1.00, battle 0.79/0.89).
+ return min(map_surface_scores(im))>=.95
 DIALOG_WHITE=.2
 CHANNEL_SWITCH_VERIFIED=True  # positions checked on real screenshots 2026-10-18 18:14-18:19
 SOCIAL_ICON=(810,740,16,16)            # 3rd icon from the left, bottom-right bar (book): 好友/公会/更换频道
@@ -71,6 +75,10 @@ SOCIAL_CHANGE_CHANNEL=(778,647,82,20)
 # menu, the icon kept keyboard focus, so the nurse's 空格 reopened the menu and opened 好友 instead.
 # A click on the world hands the keyboard back to the game.
 WORLD_FOCUS=(40,420,10,10)
+# 走路单遇 (user 2026-10-30, 矢车森林): walk back and forth in the grass, no Sweet Scent, no hospital.
+WALK_KEYS={'h':(0x41,0x44),'v':(0x57,0x53)}   # left/right or up/down
+WALK_NO_ENCOUNTER=90                          # seconds of walking without a battle -> not in the grass
+WALK_ESCAPE_RETRIES=6                         # a single wild Pokemon can block the escape a few times
 # User confirmed 2026-10-18 21:16: clicking the same icon again closes its popup menu (book and pokeball).
 # Never auto-recover from these: protection stops, user stops, setup problems.
 def channel_interval():
@@ -387,6 +395,14 @@ class App:
     for old in folder.glob('*.png'):old.unlink()
    self.capture().save(folder/f'{ix+1:02d}-{label}.png',compress_level=1)
   except Exception:pass
+ def walking(self):return getattr(self,'task_mode','fixed')=='walk'
+ def mode_label(self):
+  m=getattr(self,'task_mode','fixed');return '走路单遇' if m=='walk' else ('PP果定点' if m=='fixed' else '白嫖闪')
+ def walk_step(self):
+  # One short step, then the opposite one of the same length: the player stays on the same patch of grass.
+  keys=WALK_KEYS.get(getattr(self,'walk_axis','h'),WALK_KEYS['h']);i=getattr(self,'_walk_i',0)
+  if i%2==0:self._walk_t=random.uniform(.35,.6)
+  self._hold_once(keys[i%2],self._walk_t);self._walk_i=i+1
  def current_spot(self):
   return getattr(self,'spot',None) or spots.get(spots.DEFAULT_SPOT)
  def recover_pp(self):
@@ -497,7 +513,7 @@ class App:
    elif kind=='unknown' and attempt<=3:self.wait(1.5)
    elif kind=='pc_hall' and not self.pp_run:
     if first:return 'start'
-    raise RuntimeError('自动恢复：PP果定点模式下人在宝可梦中心里，这个模式不会自己走回点位，已停止')
+    raise RuntimeError(f'自动恢复：{self.mode_label()}模式下人在宝可梦中心里，这个模式不会自己走回点位，已停止')
    elif kind=='pc_hall':
     if first:return 'start'
     self.say('  在宝可梦中心里：按住S走出门')
@@ -511,6 +527,10 @@ class App:
      # map reference, so try 5 once before walking the whole route. No battle -> the normal loop raises
      # and the next recovery walks the route.
      probed=True;self.say('  刚收起弹窗，人应该还在原地：先按 5 试一次');return 'press5'
+    if self.walking() and kind in ('unknown','outdoor'):
+     # Outdoors in the grass is the normal place for 走路单遇: go back to walking. Not in the grass ->
+     # the walk loop stops by itself after WALK_NO_ENCOUNTER seconds without a battle.
+     self.say('  走路单遇：回到来回走');return 'press5'
     if not self.pp_run:
      if kind in ('unknown','outdoor') and not probed:
       # PP果定点 has no map of its spot: a crowd or a channel change can make the spot look foreign.
@@ -656,9 +676,11 @@ class App:
     self.say('OCR预热完成，已记录当前起点画面')
    while True:
     try:
-     state='ready';partial_since=None;deadline=time.monotonic()+45;last_combat_log=0;key_sent=time.monotonic();key_retry=False;rounds=0;return_log=0;last_escape_click=0;escape_retries=0;escape_success=False;hud_frames=0
+     walk=self.walking();walk_since=time.monotonic();state='ready';partial_since=None;deadline=time.monotonic()+45;last_combat_log=0;key_sent=time.monotonic();key_retry=False;rounds=0;return_log=0;last_escape_click=0;escape_retries=0;escape_success=False;hud_frames=0
      if resume=='battle':
       state='battle';key_retry=True;deadline=time.monotonic()+55
+     elif resume=='press5' and walk:
+      state='walk';self.say('继续在草丛里来回走，等遇怪');deadline=time.monotonic()+45
      elif resume=='press5':
       self.press(0x35);self.say('已回到刷怪点，发送5继续刷');state='battle';key_sent=time.monotonic();deadline=time.monotonic()+55
      else:
@@ -672,6 +694,8 @@ class App:
        self.recover_pp()
        self.press(0x35);self.say('PP恢复后已发送5，等待战斗');state='battle';key_sent=time.monotonic();deadline=time.monotonic()+55
       elif self.channel_run and self.elapsed>=self.next_switch:self.switch();deadline=time.monotonic()+45
+      elif walk:
+       state='walk';self.say('走路单遇：在草丛里来回走，等遇怪');deadline=time.monotonic()+45
       else:
        self.press(0x35);self.say('已发送5，等待进入战斗');state='battle';key_sent=time.monotonic();key_retry=False;deadline=time.monotonic()+55
      while not self.stop_event.is_set():
@@ -687,6 +711,21 @@ class App:
        if not self.battle_evidence(data) and not self.blocking_ui(first,data) and not self.det.map(first):
         self.wait(.4);self.det.set_map_reference(first,self.capture());self.say('换完频道周围的人变了：按当前画面重新记录起点')
       self.rest_until=0;self.mode='刷怪';im=self.capture();data=self.check_verification(im);on_map=self.det.map(im)
+      if state=='ready' and walk:
+       state='battle' if self.battle_evidence(data) else 'walk';walk_since=time.monotonic();key_sent=time.monotonic();key_retry=True;deadline=time.monotonic()+55;continue
+      if state=='walk':
+       if escape_region(data) or self.battle_evidence(data) or (hud_only_map_text(data) and not map_view(im)):
+        self.say('遇到野生宝可梦，进入战斗');state='battle';key_sent=time.monotonic();key_retry=True;last_combat_log=0;deadline=time.monotonic()+55;continue
+       if not hud_only_map_text(data):
+        # Battle transition (dark/flash frames) or a window: do not press keys into it, look again.
+        if time.monotonic()-walk_since>WALK_NO_ENCOUNTER:raise RuntimeError('走路单遇：画面一直不是地图也不是战斗，已停止，请检查游戏')
+        ui=self.blocking_ui(im,data)
+        if ui:raise RuntimeError(f'刷怪点被「{screen_state.LABELS[ui]}」挡住了，没有继续走')
+        self.wait(.15);continue
+       if self.channel_run and self.elapsed>=self.next_switch:self.switch();walk_since=time.monotonic();deadline=time.monotonic()+45;continue
+       if time.monotonic()-walk_since>WALK_NO_ENCOUNTER:
+        raise RuntimeError(f'走路单遇：来回走了{WALK_NO_ENCOUNTER}秒都没遇到怪，可能不在草丛里或被挡住了，已停止')
+       self.walk_step();deadline=time.monotonic()+45;continue
       if state=='ready':
        if time.monotonic()-last_diagnostic>=5:
         tree=self.det.score(im,'map_tree');bridge=self.det.score(im,'map_bridge');self.say(f'确认返回本轮起点：参考区1={tree:.3f} / 参考区2={bridge:.3f}');last_diagnostic=time.monotonic()
@@ -711,15 +750,17 @@ class App:
         self.diagnostic(im,data,'protected');raise RuntimeError('检测到验证码文字，已停止，请检查画面')
        if time.monotonic()-last_combat_log>=4:
         self.diagnostic(im,data,'battle');self.say(('已找到逃跑文字位置' if button else '未找到逃跑菜单')+'；当前OCR：'+data['text'][:180]);last_combat_log=time.monotonic()
-       if not button and on_map and not self.battle_evidence(data) and time.monotonic()-key_sent>8 and not key_retry:
+       if not walk and not button and on_map and not self.battle_evidence(data) and time.monotonic()-key_sent>8 and not key_retry:
         self.say('仍是起点地图，重新检查画面后重试5一次');self.press(0x35,virtual=True);key_retry=True;key_sent=time.monotonic()
-       elif not button and on_map and not self.battle_evidence(data) and key_retry and time.monotonic()-key_sent>12 and not getattr(self,'_patience_used',False):
+       elif not walk and not button and on_map and not self.battle_evidence(data) and key_retry and time.monotonic()-key_sent>12 and not getattr(self,'_patience_used',False):
         # 2026-10-27 21:59-22:08 龙穴: the game ignored three escape clicks, then 5 twice, and answered
         # again 20 minutes later - a server stall, not a broken setup. Wait once more before giving up.
         self._patience_used=True;self.say('游戏 20 秒没反应（可能是服务器卡顿），等 15 秒再按一次 5')
         self.wait(15);self.press(0x35,virtual=True);key_sent=time.monotonic()
-       elif not button and on_map and not self.battle_evidence(data) and key_retry and time.monotonic()-key_sent>12:
+       elif not walk and not button and on_map and not self.battle_evidence(data) and key_retry and time.monotonic()-key_sent>12:
         raise RuntimeError('重试后仍是地图，游戏未触发技能；请检查5的绑定及输入权限。诊断截图已保存')
+       if walk and not button and hud_only_map_text(data) and map_view(im) and time.monotonic()-key_sent>6:
+        self.say('  没进战斗（画面还是地图），继续走');state='walk';walk_since=time.monotonic();deadline=time.monotonic()+45;continue
        if button:
         self._patience_used=False
         spot=self.current_spot()
@@ -729,7 +770,7 @@ class App:
         if guard['matched']:
          self.diagnostic(im,{**data,'original_flash_rule':guard},'original-flash-check');raise RuntimeError('原规则命中闪光：指定OCR区域文字 + 逃跑图像；已停止')
         if guard['escape_image_hit']:
-         self.say('原闪光规则未命中；'+(f'已确认{"/".join(self.current_spot()["targets"])}群' if getattr(self,'task_mode','fixed')=='frillish' else 'PP果定点'))
+         self.say('原闪光规则未命中；'+(f'已确认{"/".join(self.current_spot()["targets"])}群' if getattr(self,'task_mode','fixed')=='frillish' else self.mode_label()))
          fresh=self.capture();latest=self.check_verification(fresh);guard=self.original_flash_guard(fresh,button)
          if guard['matched']:
           self.diagnostic(fresh,{**latest,'original_flash_rule':guard},'before-escape');raise RuntimeError('点击前原闪光规则命中，已停止')
@@ -756,7 +797,7 @@ class App:
        # (no menu, no battle words) at least 2.5s after the click also prove we are back on the map.
        ocr_map=hud_only and (escape_success or (hud_frames>=3 and time.monotonic()-last_escape_click>=2.5))
        restored=map_return_evidence(im,data,button,on_map or ocr_map)
-       if restored and not on_map and stable>=1 and prev_return_im is not None:
+       if restored and not on_map and stable>=1 and prev_return_im is not None and not walk:
         self.det.set_map_reference(prev_return_im,im);self.say('地图参考图被遮挡，已按当前画面重新记录')
        if not restored and not button and time.monotonic()-last_escape_click>=3:
         ui=self.blocking_ui(im,data)
@@ -767,21 +808,23 @@ class App:
         self.diagnostic(im,{**data,'map_surface_scores':map_surface_scores(im),'map_template_scores':[self.det.score(im,'map_tree'),self.det.score(im,'map_bridge')],'ocr_map':bool(ocr_map),'escape_success_seen':escape_success,'hud_only_frames':hud_frames,'return_stable':stable},'return')
         self.say(f'确认逃跑结果：菜单={bool(button)}，成功逃脱提示={escape_success}，地图恢复={restored}（图像={on_map}，文字={bool(ocr_map)}，连续HUD帧={hud_frames}）')
         return_log=time.monotonic()
-       if button and escape_retries>=2 and time.monotonic()-last_escape_click>=20:
+       limit=WALK_ESCAPE_RETRIES if walk else 2
+       if button and escape_retries>=limit and time.monotonic()-last_escape_click>=20:
         # Server stalls (2026-10-27 21:59) can hold the menu for a while: give the game 20 s, not 4.
-        raise RuntimeError('已发送三次逃跑点击，又等了 20 秒菜单仍在；已停止，请检查是否有遮挡或游戏未接收点击')
-       if button and time.monotonic()-last_escape_click>=2 and escape_retries<2:
+        raise RuntimeError(f'已发送{limit+1}次逃跑点击，又等了 20 秒菜单仍在；已停止，请检查是否有遮挡或游戏未接收点击')
+       if button and time.monotonic()-last_escape_click>=2 and escape_retries<limit:
         guard=self.original_flash_guard(im,button)
         if guard['matched']:raise RuntimeError('重试逃跑前原闪光规则命中，已停止')
         if guard['escape_image_hit']:
          fresh=self.check_verification(self.capture())
          if not escape_region(fresh):raise RuntimeError('重试前无法再次确认逃跑菜单，已停止')
          area=escape_button_area(escape_region(fresh))
-         (self.slow_click if escape_retries==1 else self.click)(area);escape_retries+=1;last_escape_click=time.monotonic()
-         self.say(f'逃跑菜单仍在，已复查并发送重试点击（{escape_retries}/2{"，慢速点击" if escape_retries==2 else ""}），等待游戏确认')
+         (self.slow_click if escape_retries>=1 else self.click)(area);escape_retries+=1;last_escape_click=time.monotonic();deadline=time.monotonic()+35
+         self.say(f'逃跑菜单仍在{"（可能没逃掉）" if walk else ""}，已复查并发送重试点击（{escape_retries}/{limit}{"，慢速点击" if escape_retries>=2 else ""}），等待游戏确认')
        if stable>=2:
         rounds+=1;self.total_rounds+=1
         if self.pp_run:due=self.pp_progress.encounter_done();self.say(f'第{rounds}轮完成；PP {self.pp_progress.completed}/6')
+        elif walk:due=False;self.say(f'第{rounds}只完成（走路单遇）')
         else:due=False;self.say(f'第{rounds}轮完成（PP果定点：不回院，一直刷）')
         stable=0
         ui=self.blocking_ui(im,data)
@@ -790,6 +833,7 @@ class App:
          if self.pp_run:self.recover_pp()
          else:raise RuntimeError('六次遭遇完成，PP恢复未启用，已停止')
         if self.channel_run and self.elapsed>=self.next_switch:self.switch();state='ready';deadline=time.monotonic()+45
+        elif walk:state='walk';walk_since=time.monotonic();deadline=time.monotonic()+45
         else:
          self.press(0x35);self.say('已再次发送5，开始下一轮战斗');state='battle';key_sent=time.monotonic();key_retry=False;deadline=time.monotonic()+55
       if time.monotonic()>deadline:raise RuntimeError('等待画面变化超时，已停止，请检查游戏')

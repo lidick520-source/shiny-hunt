@@ -22,6 +22,7 @@ SCENARIOS = {
     'focus_steal': dict(rounds=10, faults=('focus_steal',), expect='run', note='运行中你点了别的程序 4 次：自动把游戏切回前台继续刷，不停止'),
     'interruptions': dict(rounds=12, faults=('interruptions',), expect='run', note='弹出锦标赛窗口、冒出是/否提示、去医院后停在街上：都自己恢复，不停止'),
     'ppberry':     dict(rounds=14, faults=(), mode='fixed', expect='run', note='PP果定点：只按5和逃跑，14轮不回院、不按4、不走路'),
+    'walk':        dict(rounds=12, faults=('walk','escape_blocked'), mode='walk', expect='run', note='走路单遇：草丛里左右来回走、遇怪查闪逃跑；没逃掉时自己再点，不按5、不回院'),
     'short_walk':  dict(rounds=8,  faults=('short_walk',), expect='run', note='最后一段没走到岸边（11:50 的真实故障）：补按一下D自己贴到岸边，继续刷'),
 }
 
@@ -102,7 +103,9 @@ def run(name, live):
         ok = not game.problems and game.focus_depth == 0 and inside
         if cfg['expect'] == 'run':
             extra = 1 if 'yes_no' in game.popped else 0          # the injected 是/否 prompt answered 是 = one extra surf
-            if cfg.get('mode') == 'fixed':
+            if cfg.get('mode') == 'walk':
+                ok = ok and engine.total_rounds >= cfg['rounds'] and game.heals == 0 and game.teleports == 0 and game.walk_steps > 0 and game.blocked >= 2
+            elif cfg.get('mode') == 'fixed':
                 ok = ok and engine.total_rounds >= cfg['rounds'] and game.heals == 0 and game.surfs == 0 and game.teleports == 0
             else:
                 ok = ok and engine.total_rounds >= cfg['rounds'] and game.heals >= cfg['rounds'] // 6 and game.surfs == game.heals + extra

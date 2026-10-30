@@ -26,7 +26,7 @@ class FakeGame:
         self.held = {}; self.log = []; self.problems = []; self.clicks = []
         self.battle = None; self.escapes = 0; self.heals = 0; self.surfs = 0
         self.focus_depth = 0; self.dropped_space = False; self.dropped_surf = False; self.channel = 2; self.switches = 0
-        self.front = True; self.teleports = 0; self.steals = 0; self.next_steal = time.monotonic() + 20; self.lost_inputs = 0; self.popped = set()
+        self.front = True; self.walk_steps = 0; self.blocked = 0; self.teleports = 0; self.steals = 0; self.next_steal = time.monotonic() + 20; self.lost_inputs = 0; self.popped = set()
 
     # ---- what the assistant sees
     def foreground(self):
@@ -143,6 +143,16 @@ class FakeGame:
 
     def _walk(self, s, key, held):
         name = {S: 'S', D: 'D', W: 'W', A: 'A'}[key]
+        if 'walk' in self.faults:
+            # 走路单遇: short left/right steps in the grass; every few steps a wild Pokemon jumps out.
+            if s != 'map' or key not in (A, D) or held > 1.0:
+                self.problem(f'走路单遇：在「{s}」状态长按了{name} {held:.2f}秒'); return
+            self.walk_steps += 1
+            if self.rand.random() < .3:
+                self.battle = self.rand.choice(BATTLES); self.note(f'走了 {self.walk_steps} 步 → 遇到野生宝可梦')
+                self._schedule([(0.0, 'battle', self.battle[0]), (0.8, 'battle', self.battle[1]),
+                                (1.0, 'battle', self.battle[2]), (1.0, 'menu', self.battle[3])])
+            return
         if s in ('pc_bye', 'pc_ask', 'pc_healed', 'pc_healing'):
             self.note(f'长按{name} {held:.2f}秒，但对话框开着，人物没动'); return
         if s == 'pc_done' and key == S and held > 1.5:
@@ -208,7 +218,11 @@ class FakeGame:
         if x0 <= x <= x1 and y0 <= y <= y1:
             self.escapes += 1; smoke = self.battle[4]
             self.note(f'点击 ({x:.0f},{y:.0f}) 在逃跑按钮内 → 逃跑')
-            if 'missed_escape_msg' in self.faults:   # bubble too short for OCR, other players on the map
+            if 'escape_blocked' in self.faults and self.escapes % 3 == 1 and self.blocked < 4:
+                # A single wild Pokemon blocked the escape: it attacks, then the menu is back.
+                self.blocked += 1; self.note('（故障注入）没逃掉，对方攻击后菜单又出现')
+                steps = [(0.0, 'escaping', self.battle[2]), (1.5, 'menu', self.battle[3])]
+            elif 'missed_escape_msg' in self.faults:   # bubble too short for OCR, other players on the map
                 steps = ([(0.0, 'escaping', smoke)] if smoke else []) + [(0.6, 'escaping', 'escape_success'), (0.05, 'map', 'map_c_players' if self.escapes % 2 else 'map_b_toast')]
             elif 'interruptions' in self.faults and self.escapes == 3 and 'tournament' not in self.popped:
                 self.popped.add('tournament'); self.note('（故障注入）逃跑后弹出了锦标赛报名窗口')

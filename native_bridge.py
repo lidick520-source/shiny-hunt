@@ -132,8 +132,9 @@ class NativeEngine(App):
         if not automatic_pp:self.pp_progress.completed = 0   # PP果定点 never goes to the hospital: no 6-round limit
         if self.pp_progress.completed >= self.pp_progress.every and not automatic_pp and not self.pp_progress.recovering:
             raise ValueError('六轮已完成：开启PP恢复，或手动补满PP后重置计数')
-        self.task_mode = self.settings.get('task_mode','frillish')   # frillish = 白嫖闪 (spot list), fixed = PP果定点
+        self.task_mode = self.settings.get('task_mode','frillish')   # frillish = 白嫖闪 (spot list), fixed = PP果定点, walk = 走路单遇
         self.spot = spots.get(self.settings.get('spot', spots.DEFAULT_SPOT))
+        self.walk_axis = self.settings.get('walk_axis','h')
         self.route_test = bool(route_test)
         if route_test:self.task_mode = 'frillish'
         self.auto_run = True
@@ -487,6 +488,7 @@ class NativeEngine(App):
                     restRemaining=max(0,int(self.rest_until-now)) if self.rest_until else int(self.saved_rest),
                     channelRemaining=max(0,int(self.next_switch-self.elapsed)),
                     taskMode=str(self.settings.get('task_mode','frillish')),
+                    walkAxis=str(self.settings.get('walk_axis','h')),
                     auto=True,
                     ppEnabled=self.pp_setting(),
                     gameFound=bool(game), gameFrame=(game or {}).get('frame', []), gamePid=int((game or {}).get('pid', 0)),
@@ -526,13 +528,17 @@ class NativeEngine(App):
             self.confirmed = bool(data.get('value'))
         elif action == 'settings':
             if 'task_mode' in data:
-                if data['task_mode'] not in ('fixed','frillish'):
+                if data['task_mode'] not in ('fixed','frillish','walk'):
                     raise ValueError('任务类型无效')
                 self.settings['task_mode'] = data['task_mode']
             if 'spot' in data:
                 if data['spot'] not in [s['key'] for s in spots.SPOTS]:
                     raise ValueError('点位无效')
                 self.settings['spot'] = data['spot']
+            if 'walk_axis' in data:
+                if data['walk_axis'] not in ('h','v'):
+                    raise ValueError('走路方向无效')
+                self.settings['walk_axis'] = data['walk_axis']
             for key in ('channels','pp_enabled'):
                 if key in data:
                     if not isinstance(data[key], bool):

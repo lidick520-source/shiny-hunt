@@ -15,7 +15,7 @@ struct EngineState: Decodable {
     var screenAllowed = false
     var restRemaining = 0, channelRemaining = 3000
     var auto = false, ppEnabled = false, channels = false
-    var taskMode = "frillish"
+    var taskMode = "frillish", walkAxis = "h"
     var notificationEnabled = false, notificationConfigured = false
     var gameFound = false, gameFrame: [Double] = [], gamePid = 0
     var protection = "", recoveriesTotal = 0, focusRegains = 0
@@ -484,6 +484,7 @@ extension Controller {
         if stoppedWithReason { return state.lastReason }
         if !state.gameFound { return "先打开 PokeMMO（窗口模式，内容区 1024×768），这里会自动找到它。" }
         if state.taskMode == "fixed" { return "站在你的固定点位后点开始：只按 5、查闪光、逃跑，一直循环。" }
+        if state.taskMode == "walk" { return "站进草丛里后点开始：来回走、遇怪、查闪光、逃跑，一直循环。" }
         let name = state.spots.first(where: { $0.key == state.spot })?.name ?? "刷怪点"
         return "站在「\(name)」的刷怪点后点开始。游戏会一直保持在前台，弹窗、走偏会自己处理。"
     }
@@ -512,7 +513,7 @@ extension Controller {
                 items.append(FeedItem(id: entry.id, time: entry.time, title: "命中闪光规则，立即停止", detail: "闪光永远不会被自动恢复跳过", kind: .shiny))
             } else if text.contains("已自动切回前台") {
                 items.append(FeedItem(id: entry.id, time: entry.time, title: "游戏被切到后台，已切回", detail: "", kind: .normal))
-            } else if text.contains("轮完成") {
+            } else if text.contains("轮完成") || text.contains("只完成") {
                 items.append(FeedItem(id: entry.id, time: entry.time, title: text.components(separatedBy: "；").first ?? text, detail: "", kind: .normal))
             } else if text.contains("PP 已用") {
                 items.append(FeedItem(id: entry.id, time: entry.time, title: "PP 用完，开始去医院", detail: "", kind: .normal))

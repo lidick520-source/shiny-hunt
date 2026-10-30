@@ -50,6 +50,11 @@ extension Controller {
         return (parts.first ?? "", parts.count > 1 ? parts[1] : "")
     }
     var fixedMode: Bool { state.taskMode == "fixed" }
+    var walkMode: Bool { state.taskMode == "walk" }
+    /// 白嫖闪 uses the spot list and the hospital; the other two stay where the player stands.
+    var stayMode: Bool { fixedMode || walkMode }
+    var modeName: String { walkMode ? "走路单遇" : (fixedMode ? "PP果定点" : "白嫖闪") }
+    var unit: String { walkMode ? "只" : "群" }
     var ppLeft: Int { max(0, state.ppEvery - state.ppCompleted) }
     var hoursMinutes: String {
         let h = state.elapsed / 3600, m = state.elapsed / 60 % 60
@@ -59,13 +64,13 @@ extension Controller {
     var lettering: (lines: [String], accentLast: Bool, sub: String) {
         switch screen {
         case .shiny:
-            return (["WOW,", "IT'S", "SHINY!!"], true, "第 \(state.rounds + 1) 群里有闪光！已经停下，没点逃跑。")
+            return (["WOW,", "IT'S", "SHINY!!"], true, "第 \(state.rounds + 1) \(unit)有闪光！已经停下，没点逃跑。")
         case .running:
             if state.recovering { return (["HEALING", "AT THE", "CENTER"], false, "PP 用完了，回中心补满再冲浪回来。") }
             if state.restRemaining > 0 { return (["TAKING", "A", "BREAK"], false, "刚换完频道，歇 \(minutes(state.restRemaining)) 后自己接着刷。") }
             let en = spotInfo?.en ?? ""
-            let target = fixedMode || en.isEmpty ? "NONSTOP" : en
-            let place = fixedMode ? "固定点位" : "\(spotParts.city)刷\(spotParts.target)"
+            let target = stayMode || en.isEmpty ? "NONSTOP" : en
+            let place = walkMode ? "草丛里来回走" : (fixedMode ? "固定点位" : "\(spotParts.city)刷\(spotParts.target)")
             return (["SHINY", "HUNTING", target], false, "\(place)，已经 \(hoursMinutes)，还没出闪。")
         case .idle:
             if !connected { return (["HOLD", "ON A", "SECOND"], false, "正在启动后台…") }
@@ -307,8 +312,8 @@ struct RunningBody: View {
         let s = c.state
         ZStack(alignment: .topLeading) {
             StatCapsule(items: [
-                ("\(s.rounds)", "遇到几群"),
-                (c.fixedMode ? "∞" : "\(c.ppLeft)", c.fixedMode ? "PP果自补" : "还剩几轮"),
+                ("\(s.rounds)", "遇到几\(c.unit)"),
+                (c.stayMode ? "∞" : "\(c.ppLeft)", c.walkMode ? "不用 PP" : (c.fixedMode ? "PP果自补" : "还剩几轮")),
                 (channelValue, s.restRemaining > 0 ? "正在休息" : "换频道")
             ]) {
                 RoundIconButton(icon: "arrow.right", label: "完整日志") { c.showLogs = true }
@@ -328,7 +333,7 @@ struct RunningBody: View {
                         .padding(.bottom, 2).padding(.trailing, 80)
                     }
                     HStack(spacing: 6) {
-                        Chip(text: c.fixedMode ? "PP果定点" : "白嫖闪", accent: true)
+                        Chip(text: c.modeName, accent: true)
                         if s.notificationEnabled { Chip(text: "出闪提醒") }
                         if s.channels && !s.routeTest { Chip(text: "随机换频道") }
                     }
@@ -361,11 +366,11 @@ struct RunningBody: View {
                 }
                 .frame(height: 12)
             }
-        } else if c.fixedMode {
+        } else if c.stayMode {
             HStack {
-                Text("PP果定点").font(.system(size: 12, weight: .bold))
+                Text(c.modeName).font(.system(size: 12, weight: .bold))
                 Spacer()
-                Text("不回中心，一直刷").font(.system(size: 12)).foregroundStyle(Sticker.muted)
+                Text(c.walkMode ? (s.walkAxis == "v" ? "草丛里上下来回走" : "草丛里左右来回走") : "不回中心，一直刷").font(.system(size: 12)).foregroundStyle(Sticker.muted)
             }
         } else {
             VStack(alignment: .leading, spacing: 8) {
@@ -416,12 +421,14 @@ struct IdleBody: View {
     let width: CGFloat, height: CGFloat
     private var canChange: Bool { c.connected && !c.pending && !c.state.busy }
     var body: some View {
-        let fixed = c.fixedMode
+        let fixed = c.stayMode
         ZStack(alignment: .topLeading) {
             modeSwitch.offset(x: 16, y: 318)
             HeartStar().offset(x: 296 + (width - 400), y: 300)
 
-            if fixed {
+            if c.walkMode {
+                walkPanel.frame(width: width - 36, alignment: .leading).offset(x: 18, y: 402)
+            } else if fixed {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("PP果定点").font(.system(size: 12, weight: .bold))
                     Text("站在任意固定点位，只按 5、查闪光、逃跑，一直循环。不回中心，走偏了就停。")
@@ -450,8 +457,9 @@ struct IdleBody: View {
     }
     private var modeSwitch: some View {
         HStack(spacing: 4) {
-            modeButton("白嫖闪", "6 轮回中心补 PP", "frillish")
-            modeButton("PP果定点", "原地一直刷", "fixed")
+            modeButton("白嫖闪", "回中心补PP", "frillish")
+            modeButton("PP果定点", "原地按 5", "fixed")
+            modeButton("单遇", "草丛走路", "walk")
         }
         .padding(8).frame(width: 300, height: 66)
         .background(Color.white, in: RoundedRectangle(cornerRadius: 22))
@@ -468,6 +476,30 @@ struct IdleBody: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .background(on ? Sticker.ink : Color.clear, in: RoundedRectangle(cornerRadius: 16))
             .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain).disabled(!canChange)
+        .accessibilityAddTraits(on ? .isSelected : [])
+    }
+    private var walkPanel: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack(spacing: 8) {
+                Text("走路单遇").font(.system(size: 12, weight: .bold))
+                Spacer()
+                axisButton("左右走", "h")
+                axisButton("上下走", "v")
+            }
+            Text("站进草丛里，来回走、遇怪、查闪光、逃跑。不用 PP、不回中心；队首带只快的，逃跑才稳。")
+                .font(.system(size: 12)).foregroundStyle(Sticker.muted).fixedSize(horizontal: false, vertical: true)
+        }
+    }
+    private func axisButton(_ title: String, _ tag: String) -> some View {
+        let on = c.state.walkAxis == tag
+        return Button { c.send("settings", ["walk_axis": tag]) } label: {
+            Text(title).font(.system(size: 12, weight: .bold))
+                .foregroundStyle(on ? Color.white : Sticker.ink)
+                .padding(.horizontal, 10).padding(.vertical, 4)
+                .background(on ? Sticker.ink : Color.white, in: Capsule())
+                .overlay(Capsule().stroke(Sticker.ink.opacity(on ? 0 : 0.25), lineWidth: 1))
         }
         .buttonStyle(.plain).disabled(!canChange)
         .accessibilityAddTraits(on ? .isSelected : [])
@@ -519,7 +551,7 @@ struct ShinyBody: View {
         let s = c.state
         ZStack(alignment: .topLeading) {
             StatCapsule(items: [
-                ("\(s.rounds + 1)", "遇到几群"),
+                ("\(s.rounds + 1)", "遇到几\(c.unit)"),
                 (String(format: "%d:%02d", s.elapsed / 3600, s.elapsed / 60 % 60), "用了多久"),
                 ("\(s.recoveriesTotal)", "自动恢复")
             ]) {
