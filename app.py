@@ -78,7 +78,8 @@ WORLD_FOCUS=(40,420,10,10)
 # 走路单遇 (user 2026-10-30, 矢车森林): walk back and forth in the grass, no Sweet Scent, no hospital.
 WALK_KEYS={'h':(0x41,0x44),'v':(0x57,0x53)}   # left/right or up/down
 WALK_NO_ENCOUNTER=90                          # seconds of walking without a battle -> not in the grass
-WALK_ESCAPE_RETRIES=6                         # a single wild Pokemon can block the escape a few times
+WALK_ESCAPE_RETRIES=6
+WALK_STILL_BATTLE=re.compile(r'Lv\.?\s*\d+|派出了|使出了|逃跑|选择战斗技能')                         # a single wild Pokemon can block the escape a few times
 # User confirmed 2026-10-18 21:16: clicking the same icon again closes its popup menu (book and pokeball).
 # Never auto-recover from these: protection stops, user stops, setup problems.
 def channel_interval():
@@ -331,6 +332,8 @@ class App:
    stamp=time.strftime('%Y%m%d-%H%M%S');im.save(folder/(stamp+'-event.png'))
    (folder/(stamp+'-event.json')).write_text(json.dumps(data,ensure_ascii=False,indent=2))
   (folder/'latest-ocr.json').write_text(json.dumps({'state':state,'time':time.strftime('%Y-%m-%d %H:%M:%S'),**data},ensure_ascii=False,indent=2),encoding='utf8')
+  if state=='return':   # latest-ocr.json is overwritten at stop; keep the last return frame for analysis
+   (folder/'latest-return.json').write_text(json.dumps({'time':time.strftime('%Y-%m-%d %H:%M:%S'),**data},ensure_ascii=False,indent=2),encoding='utf8')
  def original_flash_guard(self,im,button=None):
   score=self.det.original_escape_score(im,button);image_hit=score>=.8;texts=['','']
   if image_hit:
@@ -691,7 +694,7 @@ class App:
     self.say('OCR预热完成，已记录当前起点画面')
    while True:
     try:
-     walk=self.walking();walk_since=time.monotonic();state='ready';partial_since=None;deadline=time.monotonic()+45;last_combat_log=0;key_sent=time.monotonic();key_retry=False;rounds=0;return_log=0;last_escape_click=0;escape_retries=0;escape_success=False;hud_frames=0
+     walk=self.walking();walk_since=time.monotonic();walk_log=time.monotonic();state='ready';partial_since=None;deadline=time.monotonic()+45;last_combat_log=0;key_sent=time.monotonic();key_retry=False;rounds=0;return_log=0;last_escape_click=0;escape_retries=0;escape_success=False;hud_frames=0
      if resume=='battle':
       state='battle';key_retry=True;deadline=time.monotonic()+55
      elif resume=='press5' and walk:
@@ -731,6 +734,11 @@ class App:
       if state=='walk':
        if escape_region(data) or self.battle_evidence(data) or (hud_only_map_text(data) and not map_view(im)):
         self.say('遇到野生宝可梦，进入战斗');state='battle';key_sent=time.monotonic();key_retry=True;last_combat_log=0;deadline=time.monotonic()+55;continue
+       if '香水用完了' in data['text']:
+        # 「香水用完了. 使用下一个?」 (PokeLoop template 1766587015): answer 是 with space, keep walking.
+        self.say('  香水用完了，按空格用下一瓶');self.press(0x20);self.wait(1.5);walk_since=time.monotonic();continue
+       if time.monotonic()-walk_log>=30:
+        walk_log=time.monotonic();self.say(f'  走路中：已走 {getattr(self,"_walk_i",0)} 步，{int(time.monotonic()-walk_since)} 秒没遇到怪')
        if not hud_only_map_text(data):
         # Battle transition (dark/flash frames) or a window: do not press keys into it, look again.
         if time.monotonic()-walk_since>WALK_NO_ENCOUNTER:raise RuntimeError('走路单遇：画面一直不是地图也不是战斗，已停止，请检查游戏')
@@ -807,11 +815,18 @@ class App:
        # Other players walking over a memorised map patch break the image match;
        # after a seen escape message, a HUD-only OCR frame is also valid evidence.
        hud_only=hud_only_map_text(data) and not button
+       if walk and not hud_only and not button and time.monotonic()-last_escape_click>=2.5 and not WALK_STILL_BATTLE.search(data['text']):
+        # 2026-11-07 橙华森林: after the game update the walk-mode map frames never passed hud_only (logged
+        # 文字=False 274/274 times since 10-31), and walking leaves the start-image reference behind.
+        # No menu and no name plate (Lv.) for a while after the click is the map.
+        hud_only=True
        hud_frames=hud_frames+1 if hud_only else 0
        # The 成功逃脱 bubble is short and slow OCR can miss it; then 3 consecutive HUD-only frames
        # (no menu, no battle words) at least 2.5s after the click also prove we are back on the map.
        ocr_map=hud_only and (escape_success or (hud_frames>=3 and time.monotonic()-last_escape_click>=2.5))
        restored=map_return_evidence(im,data,button,on_map or ocr_map)
+       if walk and not restored and ocr_map and not any(w in data['text'] for w in ('变更','取消','验证码','是否')):
+        restored=True   # a lingering 成功逃脱 banner is not a battle (walk mode has no start-image to compare)
        if restored and not on_map and stable>=1 and prev_return_im is not None and not walk:
         self.det.set_map_reference(prev_return_im,im);self.say('地图参考图被遮挡，已按当前画面重新记录')
        if not restored and not button and time.monotonic()-last_escape_click>=3:

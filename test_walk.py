@@ -49,6 +49,11 @@ class WalkTests(unittest.TestCase):
         a.press.assert_not_called()
 
 
+    def test_walk_still_battle_words(self):
+        self.assertTrue(app.WALK_STILL_BATTLE.search("刺尾虫'虫Lv.9"))
+        self.assertFalse(app.WALK_STILL_BATTLE.search('橙华森林（PetalburgWoods）道路•频道1 247香水步数 成功逃脱!'))
+
+
 class WalkSettingsTests(unittest.TestCase):
     def test_walk_mode_and_axis_are_saved(self):
         import tempfile
