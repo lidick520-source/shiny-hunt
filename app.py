@@ -130,7 +130,9 @@ def hud_only_map_text(data):
  # Map screen OCR: location HUD (channel/money) present, no battle words.
  # Black transition frames have no HUD, so they never count.
  text=data.get('text','')
- if not re.search(r'Ch\.?\s*\d|\$\s*[\d,]{3,}',text):return False
+ # New HUD since the 2026-10-31 update: 「道路・频道1」 (digit often under the hotbar) and 「◎ $18,532,248」;
+ # Vision sometimes drops the $ (2026-11-07 橙华森林: walk mode waited 84 s, 0 steps, on a plain map).
+ if not re.search(r'Ch\.?\s*\d|\$\s*[\d,]{3,}|[◎©]\s*[\d,]{5,}|频道|捐赠者状态',text):return False
  return not re.search(r'Lv\.?\s*\d+|成功逃脱|野生怪群出现|派出了|使出了|战斗|逃跑|背包|使用道具|选择技能',text)
 def map_return_evidence(im,data,button,map_confirmed=False):
  # Colored borders are not evidence of map state: battle frames also contain them.
@@ -756,6 +758,8 @@ class App:
        if not hud_only_map_text(data):
         # Battle transition (dark/flash frames) or a window: do not press keys into it, look again.
         if time.monotonic()-walk_since>WALK_NO_ENCOUNTER:raise RuntimeError('走路单遇：画面一直不是地图也不是战斗，已停止，请检查游戏')
+        if time.monotonic()-walk_log>=5:
+         walk_log=time.monotonic();self.say(f'  没认出地图，先不走；当前OCR：{data["text"][:80]}')
         ui=self.blocking_ui(im,data)
         if ui:raise RuntimeError(f'刷怪点被「{screen_state.LABELS[ui]}」挡住了，没有继续走')
         self.wait(.15);continue
