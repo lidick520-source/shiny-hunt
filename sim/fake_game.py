@@ -145,7 +145,7 @@ class FakeGame:
         name = {S: 'S', D: 'D', W: 'W', A: 'A'}[key]
         if 'walk' in self.faults:
             # 走路单遇: short left/right steps in the grass; every few steps a wild Pokemon jumps out.
-            if s != 'map' or key not in (A, D) or held > 1.0:
+            if s != 'map' or key not in (A, D) or held > 1.6:
                 self.problem(f'走路单遇：在「{s}」状态长按了{name} {held:.2f}秒'); return
             self.walk_steps += 1
             if self.rand.random() < .3:

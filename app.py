@@ -412,10 +412,24 @@ class App:
  def mode_label(self):
   m=getattr(self,'task_mode','fixed');return '走路单遇' if m=='walk' else ('PP果定点' if m=='fixed' else '白嫖闪')
  def walk_step(self):
-  # One short step, then the opposite one of the same length: the player stays on the same patch of grass.
+  # One step, then the opposite one of the same length: the player stays on the same patch of grass.
+  # 2026-11-07: 0.35-0.6 s taps with a full OCR between them looked like standing still (3 steps in 6 s).
+  # Now ~1 s holds, and while holding a cheap image check (battle window = map no longer fills the
+  # screen) lets go of the key as soon as a battle starts. Returns True when that happened.
   keys=WALK_KEYS.get(getattr(self,'walk_axis','h'),WALK_KEYS['h']);i=getattr(self,'_walk_i',0)
-  if i%2==0:self._walk_t=random.uniform(.35,.6)
-  self._hold_once(keys[i%2],self._walk_t);self._walk_i=i+1
+  if i%2==0:self._walk_t=random.uniform(.8,1.3)
+  key=keys[i%2];self._walk_i=i+1;hit=False
+  self.ensure();self.key_event(key,True);started=time.monotonic();peek=started
+  try:
+   while time.monotonic()-started<self._walk_t:
+    self.wait(.08)
+    if time.monotonic()-started>=self._walk_t:break
+    self.ensure();self.repeat_event(key)
+    if time.monotonic()-peek>=.25:
+     peek=time.monotonic()
+     if not map_view(self.capture()):hit=True;break
+  finally:self.key_event(key,False)
+  return hit
  def current_spot(self):
   return getattr(self,'spot',None) or spots.get(spots.DEFAULT_SPOT)
  def recover_pp(self):

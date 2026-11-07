@@ -20,19 +20,33 @@ class WalkTests(unittest.TestCase):
         self.assertTrue(app.map_view(Image.open(FRAMES / 'map_a_clean.png').convert('RGB')))
         self.assertFalse(app.map_view(Image.open(FRAMES / 'battle_a0_intro.png').convert('RGB')))
 
+    def walker(self, axis, frames=None):
+        a = self.host(); a.task_mode = 'walk'; a.walk_axis = axis; a.events = []
+        a.ensure = Mock(); a.wait = lambda s: __import__('time').sleep(s)
+        a.key_event = lambda k, down: a.events.append((k, down)); a.repeat_event = Mock()
+        clean = Image.open(FRAMES / 'map_a_clean.png').convert('RGB')
+        a.capture = Mock(side_effect=frames) if frames else Mock(return_value=clean)
+        return a
+
     def test_steps_alternate_with_equal_length(self):
-        a = self.host(); a.task_mode = 'walk'; a.walk_axis = 'h'; held = []
-        a._hold_once = lambda k, s: held.append((k, s))
-        for _ in range(4): a.walk_step()
-        self.assertEqual([k for k, _ in held], [0x41, 0x44, 0x41, 0x44])
-        self.assertEqual(held[0][1], held[1][1]); self.assertEqual(held[2][1], held[3][1])
-        self.assertTrue(all(.35 <= s <= .6 for _, s in held))   # short: never the 0.8 s walk check
+        a = self.walker('h'); import time
+        lengths = []
+        for _ in range(4):
+            t = time.monotonic(); self.assertFalse(a.walk_step()); lengths.append(time.monotonic() - t)
+        self.assertEqual([k for k, d in a.events if d], [0x41, 0x44, 0x41, 0x44])
+        self.assertEqual([k for k, d in a.events if not d], [0x41, 0x44, 0x41, 0x44])   # every key let go
+        self.assertAlmostEqual(lengths[0], lengths[1], delta=.15)
+        self.assertTrue(all(.75 <= x <= 1.45 for x in lengths))
 
     def test_vertical_axis(self):
-        a = self.host(); a.task_mode = 'walk'; a.walk_axis = 'v'; held = []
-        a._hold_once = lambda k, s: held.append(k)
-        a.walk_step(); a.walk_step()
-        self.assertEqual(held, [0x57, 0x53])
+        a = self.walker('v'); a.walk_step(); a.walk_step()
+        self.assertEqual([k for k, d in a.events if d], [0x57, 0x53])
+
+    def test_step_lets_go_when_the_battle_window_appears(self):
+        battle = Image.open(FRAMES / 'battle_a0_intro.png').convert('RGB')
+        a = self.walker('h', frames=[battle] * 50); import time
+        t = time.monotonic(); self.assertTrue(a.walk_step())
+        self.assertLess(time.monotonic() - t, .6); self.assertEqual(a.events[-1], (0x41, False))
 
     def test_mode_label(self):
         a = self.host()
