@@ -36,7 +36,7 @@ class WalkTests(unittest.TestCase):
         self.assertEqual([k for k, d in a.events if d], [0x41, 0x44, 0x41, 0x44])
         self.assertEqual([k for k, d in a.events if not d], [0x41, 0x44, 0x41, 0x44])   # every key let go
         self.assertAlmostEqual(lengths[0], lengths[1], delta=.15)
-        self.assertTrue(all(.75 <= x <= 1.45 for x in lengths))
+        self.assertTrue(all(.2 <= x <= .6 for x in lengths))
 
     def test_vertical_axis(self):
         a = self.walker('v'); a.walk_step(); a.walk_step()
@@ -46,7 +46,7 @@ class WalkTests(unittest.TestCase):
         battle = Image.open(FRAMES / 'battle_a0_intro.png').convert('RGB')
         a = self.walker('h', frames=[battle] * 50); import time
         t = time.monotonic(); self.assertTrue(a.walk_step())
-        self.assertLess(time.monotonic() - t, .6); self.assertEqual(a.events[-1], (0x41, False))
+        self.assertLess(time.monotonic() - t, .35); self.assertEqual(a.events[-1], (0x41, False))
 
     def test_mode_label(self):
         a = self.host()
@@ -62,6 +62,14 @@ class WalkTests(unittest.TestCase):
         self.assertEqual(a.recover_screen(), 'press5')   # the run loop turns press5 into walking in this mode
         a.press.assert_not_called()
 
+
+    def test_edge_brightness_tells_new_ui_battle_from_map(self):
+        m = app.edge_brightness(Image.open(FRAMES / 'newui_map_petalburg.png').convert('RGB'))
+        b = app.edge_brightness(Image.open(FRAMES / 'newui_battle_driftveil.png').convert('RGB'))
+        a = self.host(); a._walk_base = m
+        self.assertTrue(a.walk_map(Image.open(FRAMES / 'newui_map_petalburg.png').convert('RGB')))
+        self.assertFalse(a.walk_map(Image.open(FRAMES / 'newui_battle_driftveil.png').convert('RGB')))
+        self.assertLess(b, .6 * m)
 
     def test_walk_still_battle_words(self):
         self.assertTrue(app.WALK_STILL_BATTLE.search("刺尾虫'虫Lv.9"))

@@ -59,6 +59,11 @@ def map_view(im):
  # The battle scene leaves black bars where the map was drawn; the HUD text stays in both, so OCR alone
  # cannot tell a battle intro from the map (sim frames: map 1.00/1.00, battle 0.79/0.89).
  return min(map_surface_scores(im))>=.95
+def edge_brightness(im):
+ # Mean brightness of the strips left of / below the battle window. A battle darkens them: old UI black
+ # bars, new UI (2026-10-31) dims the map behind the window. Real frames: map 78-127, battle 22-30.
+ a=np.asarray(im.convert('L')).astype(float)
+ return float(np.concatenate([a[180:600,20:115].ravel(),a[630:700,160:780].ravel()]).mean())
 DIALOG_WHITE=.2
 CHANNEL_SWITCH_VERIFIED=True  # positions checked on real screenshots 2026-10-18 18:14-18:19
 SOCIAL_ICON=(810,740,16,16)            # 3rd icon from the left, bottom-right bar (book): 好友/公会/更换频道
@@ -416,10 +421,10 @@ class App:
  def walk_step(self):
   # One step, then the opposite one of the same length: the player stays on the same patch of grass.
   # 2026-11-07: 0.35-0.6 s taps with a full OCR between them looked like standing still (3 steps in 6 s).
-  # Now ~1 s holds, and while holding a cheap image check (battle window = map no longer fills the
+  # Now 0.25-0.45 s steps in bursts (walk_burst), and while holding a cheap image check (battle window = map no longer fills the
   # screen) lets go of the key as soon as a battle starts. Returns True when that happened.
   keys=WALK_KEYS.get(getattr(self,'walk_axis','h'),WALK_KEYS['h']);i=getattr(self,'_walk_i',0)
-  if i%2==0:self._walk_t=random.uniform(.8,1.3)
+  if i%2==0:self._walk_t=random.uniform(.25,.45)
   key=keys[i%2];self._walk_i=i+1;hit=False
   self.ensure();self.key_event(key,True);started=time.monotonic();peek=started
   try:
@@ -427,11 +432,25 @@ class App:
     self.wait(.08)
     if time.monotonic()-started>=self._walk_t:break
     self.ensure();self.repeat_event(key)
-    if time.monotonic()-peek>=.25:
+    if time.monotonic()-peek>=.15:
      peek=time.monotonic()
-     if not map_view(self.capture()):hit=True;break
+     if not self.walk_map(self.capture()):hit=True;break
   finally:self.key_event(key,False)
   return hit
+ def walk_map(self,im,learn=False):
+  # Map (not battle) by picture, relative to the brightness of this spot's map (night or caves are darker).
+  b=edge_brightness(im);base=getattr(self,'_walk_base',None)
+  ok=b>=.6*base if base else b>=45
+  if ok and learn:self._walk_base=b if not base else .8*base+.2*b
+  return ok
+ def walk_burst(self,seconds=3.0):
+  # Several steps back to back (no OCR pause between them); stops at the first sign of a battle.
+  # 2026-11-07: the patch of grass is only 6 tiles wide, so short quick steps, not long slow ones.
+  end=time.monotonic()+seconds
+  while time.monotonic()<end:
+   if not self.walk_map(self.capture()):return True   # the battle began between two steps
+   if self.walk_step():return True
+  return False
  def current_spot(self):
   return getattr(self,'spot',None) or spots.get(spots.DEFAULT_SPOT)
  def recover_pp(self):
@@ -710,7 +729,7 @@ class App:
     self.say('OCR预热完成，已记录当前起点画面')
    while True:
     try:
-     walk=self.walking();walk_since=time.monotonic();walk_log=time.monotonic();state='ready';partial_since=None;deadline=time.monotonic()+45;last_combat_log=0;key_sent=time.monotonic();key_retry=False;rounds=0;return_log=0;last_escape_click=0;escape_retries=0;escape_success=False;hud_frames=0
+     walk=self.walking();self._walk_base=None;walk_since=time.monotonic();walk_log=time.monotonic();state='ready';partial_since=None;deadline=time.monotonic()+45;last_combat_log=0;key_sent=time.monotonic();key_retry=False;rounds=0;return_log=0;last_escape_click=0;escape_retries=0;escape_success=False;hud_frames=0
      if resume=='battle':
       state='battle';key_retry=True;deadline=time.monotonic()+55
      elif resume=='press5' and walk:
@@ -729,7 +748,8 @@ class App:
        self.press(0x35);self.say('PP恢复后已发送5，等待战斗');state='battle';key_sent=time.monotonic();deadline=time.monotonic()+55
       elif self.channel_run and self.elapsed>=self.next_switch:self.switch();deadline=time.monotonic()+45
       elif walk:
-       state='walk';self.say('走路单遇：在草丛里来回走，等遇怪');deadline=time.monotonic()+45
+       state='walk';self._walk_base=edge_brightness(reference)   # the start frame: plain map where you stand
+       self.say('走路单遇：在草丛里来回走，等遇怪');deadline=time.monotonic()+45
       else:
        self.press(0x35);self.say('已发送5，等待进入战斗');state='battle';key_sent=time.monotonic();key_retry=False;deadline=time.monotonic()+55
      while not self.stop_event.is_set():
@@ -746,27 +766,28 @@ class App:
         self.wait(.4);self.det.set_map_reference(first,self.capture());self.say('换完频道周围的人变了：按当前画面重新记录起点')
       self.rest_until=0;self.mode='刷怪';im=self.capture();data=self.check_verification(im);on_map=self.det.map(im)
       if state=='ready' and walk:
+       if not self.battle_evidence(data) and edge_brightness(im)>=45:self._walk_base=edge_brightness(im)
        state='battle' if self.battle_evidence(data) else 'walk';walk_since=time.monotonic();key_sent=time.monotonic();key_retry=True;deadline=time.monotonic()+55;continue
       if state=='walk':
-       if escape_region(data) or self.battle_evidence(data) or (hud_only_map_text(data) and not map_view(im)):
+       # 2026-11-07 橙华森林: on the plain map Vision often reads only the right-hand event panel
+       # (「◎312（已找到南瓜猫…」), not the HUD, so OCR cannot say "map". The picture can: a battle darkens
+       # the screen edges (edge_brightness 22-30) against 78-127 on maps.
+       if escape_region(data) or self.battle_evidence(data):
         self.say('遇到野生宝可梦，进入战斗');state='battle';key_sent=time.monotonic();key_retry=True;last_combat_log=0;deadline=time.monotonic()+55;continue
        if '香水用完了' in data['text']:
         # 「香水用完了. 使用下一个?」 (PokeLoop template 1766587015): answer 是 with space, keep walking.
         self.say('  香水用完了，按空格用下一瓶');self.press(0x20);self.wait(1.5);walk_since=time.monotonic();continue
+       ui=self.blocking_ui(im,data)
+       if ui:raise RuntimeError(f'刷怪点被「{screen_state.LABELS[ui]}」挡住了，没有继续走')
+       if not self.walk_map(im,learn=True):
+        # Battle window opening (or a transition): stop pressing keys and let the battle state look.
+        self.say('遇到野生宝可梦（画面出现战斗窗口），进入战斗');state='battle';key_sent=time.monotonic();key_retry=True;last_combat_log=0;deadline=time.monotonic()+55;continue
        if time.monotonic()-walk_log>=30:
         walk_log=time.monotonic();self.say(f'  走路中：已走 {getattr(self,"_walk_i",0)} 步，{int(time.monotonic()-walk_since)} 秒没遇到怪')
-       if not hud_only_map_text(data):
-        # Battle transition (dark/flash frames) or a window: do not press keys into it, look again.
-        if time.monotonic()-walk_since>WALK_NO_ENCOUNTER:raise RuntimeError('走路单遇：画面一直不是地图也不是战斗，已停止，请检查游戏')
-        if time.monotonic()-walk_log>=5:
-         walk_log=time.monotonic();self.say(f'  没认出地图，先不走；当前OCR：{data["text"][:80]}')
-        ui=self.blocking_ui(im,data)
-        if ui:raise RuntimeError(f'刷怪点被「{screen_state.LABELS[ui]}」挡住了，没有继续走')
-        self.wait(.15);continue
        if self.channel_run and self.elapsed>=self.next_switch:self.switch();walk_since=time.monotonic();deadline=time.monotonic()+45;continue
        if time.monotonic()-walk_since>WALK_NO_ENCOUNTER:
         raise RuntimeError(f'走路单遇：来回走了{WALK_NO_ENCOUNTER}秒都没遇到怪，可能不在草丛里或被挡住了，已停止')
-       self.walk_step();deadline=time.monotonic()+45;continue
+       self.walk_burst();deadline=time.monotonic()+45;continue
       if state=='ready':
        if time.monotonic()-last_diagnostic>=5:
         tree=self.det.score(im,'map_tree');bridge=self.det.score(im,'map_bridge');self.say(f'确认返回本轮起点：参考区1={tree:.3f} / 参考区2={bridge:.3f}');last_diagnostic=time.monotonic()
@@ -800,7 +821,7 @@ class App:
         self.wait(15);self.press(0x35,virtual=True);key_sent=time.monotonic()
        elif not walk and not button and on_map and not self.battle_evidence(data) and key_retry and time.monotonic()-key_sent>12:
         raise RuntimeError('重试后仍是地图，游戏未触发技能；请检查5的绑定及输入权限。诊断截图已保存')
-       if walk and not button and hud_only_map_text(data) and map_view(im) and time.monotonic()-key_sent>6:
+       if walk and not button and self.walk_map(im) and not self.battle_evidence(data) and time.monotonic()-key_sent>6:
         self.say('  没进战斗（画面还是地图），继续走');state='walk';walk_since=time.monotonic();deadline=time.monotonic()+45;continue
        if button:
         self._patience_used=False
@@ -833,7 +854,7 @@ class App:
        # Other players walking over a memorised map patch break the image match;
        # after a seen escape message, a HUD-only OCR frame is also valid evidence.
        hud_only=hud_only_map_text(data) and not button
-       if walk and not hud_only and not button and time.monotonic()-last_escape_click>=2.5 and not WALK_STILL_BATTLE.search(data['text']):
+       if walk and not hud_only and not button and time.monotonic()-last_escape_click>=2.5 and self.walk_map(im) and not WALK_STILL_BATTLE.search(data['text']):
         # 2026-11-07 橙华森林: after the game update the walk-mode map frames never passed hud_only (logged
         # 文字=False 274/274 times since 10-31), and walking leaves the start-image reference behind.
         # No menu and no name plate (Lv.) for a while after the click is the map.
