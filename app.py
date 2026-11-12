@@ -443,6 +443,14 @@ class App:
   ok=b>=.6*base if base else b>=45
   if ok and learn:self._walk_base=b if not base else .8*base+.2*b
   return ok
+ def lure_prompt(self,data,ui):
+  # 「香水用完了. 使用下一个?」 comes every ~100 steps with a lure (2026-11-12 210号道路: about every 6 min).
+  # OCR often misses its text, so a 是/否 box in 走路单遇 is answered 是 here, not by the recovery (which
+  # allows only 3 per 10 min and stopped the run twice). Never for a surf question; never in a tight loop.
+  if not self.walking() or ui!='yes_no' or '冲浪' in data.get('text',''):return False
+  now=time.monotonic();self._lure_answers=[t for t in getattr(self,'_lure_answers',[]) if now-t<60]+[now]
+  if len(self._lure_answers)>3:return False
+  self.say('  是/否提示（香水用完了，使用下一个？）：按空格选「是」');self.press(0x20);self.wait(1.5);return True
  def walk_burst(self,seconds=3.0):
   # Several steps back to back (no OCR pause between them); stops at the first sign of a battle.
   # 2026-11-07: the patch of grass is only 6 tiles wide, so short quick steps, not long slow ones.
@@ -774,10 +782,11 @@ class App:
        # the screen edges (edge_brightness 22-30) against 78-127 on maps.
        if escape_region(data) or self.battle_evidence(data):
         self.say('遇到野生宝可梦，进入战斗');state='battle';key_sent=time.monotonic();key_retry=True;last_combat_log=0;deadline=time.monotonic()+55;continue
-       if '香水用完了' in data['text']:
+       if re.search(r'香水用|使用下一个',data['text']):
         # 「香水用完了. 使用下一个?」 (PokeLoop template 1766587015): answer 是 with space, keep walking.
         self.say('  香水用完了，按空格用下一瓶');self.press(0x20);self.wait(1.5);walk_since=time.monotonic();continue
        ui=self.blocking_ui(im,data)
+       if ui and self.lure_prompt(data,ui):walk_since=time.monotonic();continue
        if ui:raise RuntimeError(f'刷怪点被「{screen_state.LABELS[ui]}」挡住了，没有继续走')
        if not self.walk_map(im,learn=True):
         # Battle window opening (or a transition): stop pressing keys and let the battle state look.
@@ -870,6 +879,7 @@ class App:
         self.det.set_map_reference(prev_return_im,im);self.say('地图参考图被遮挡，已按当前画面重新记录')
        if not restored and not button and time.monotonic()-last_escape_click>=3:
         ui=self.blocking_ui(im,data)
+        if ui and self.lure_prompt(data,ui):ui=None
         if ui:raise RuntimeError(f'逃跑后画面被「{screen_state.LABELS[ui]}」挡住了，先处理再继续')
        stable=stable+1 if restored else 0
        prev_return_im=im if restored else None
@@ -897,6 +907,7 @@ class App:
         else:due=False;self.say(f'第{rounds}轮完成（PP果定点：不回院，一直刷）')
         stable=0
         ui=self.blocking_ui(im,data)
+        if ui and self.lure_prompt(data,ui):ui=None
         if ui:raise RuntimeError(f'逃跑后画面被「{screen_state.LABELS[ui]}」挡住了，先处理再继续')
         if due:
          if self.pp_run:self.recover_pp()

@@ -71,6 +71,16 @@ class WalkTests(unittest.TestCase):
         self.assertFalse(a.walk_map(Image.open(FRAMES / 'newui_battle_driftveil.png').convert('RGB')))
         self.assertLess(b, .6 * m)
 
+    def test_lure_prompt_is_answered_in_walk_mode_only(self):
+        a = self.host(); a.press = Mock(); a.wait = Mock(); a.task_mode = 'walk'
+        self.assertTrue(a.lure_prompt({'text': ''}, 'yes_no')); a.press.assert_called_with(0x20)
+        self.assertFalse(a.lure_prompt({'text': '要使用冲浪吗？'}, 'yes_no'))
+        self.assertFalse(a.lure_prompt({'text': ''}, 'dialog'))
+        for _ in range(2): a.lure_prompt({'text': ''}, 'yes_no')
+        self.assertFalse(a.lure_prompt({'text': ''}, 'yes_no'))   # 4th within a minute: let the recovery decide
+        b = self.host(); b.press = Mock(); b.wait = Mock(); b.task_mode = 'fixed'
+        self.assertFalse(b.lure_prompt({'text': ''}, 'yes_no'))
+
     def test_walk_still_battle_words(self):
         self.assertTrue(app.WALK_STILL_BATTLE.search("刺尾虫'虫Lv.9"))
         self.assertFalse(app.WALK_STILL_BATTLE.search('橙华森林（PetalburgWoods）道路•频道1 247香水步数 成功逃脱!'))
