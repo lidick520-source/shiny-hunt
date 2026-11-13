@@ -23,6 +23,7 @@ SCENARIOS = {
     'interruptions': dict(rounds=12, faults=('interruptions',), expect='run', note='弹出锦标赛窗口、冒出是/否提示、去医院后停在街上：都自己恢复，不停止'),
     'ppberry':     dict(rounds=14, faults=(), mode='fixed', expect='run', note='PP果定点：只按5和逃跑，14轮不回院、不按4、不走路'),
     'walk':        dict(rounds=12, faults=('walk','escape_blocked'), mode='walk', expect='run', note='走路单遇：草丛里左右来回走、遇怪查闪逃跑；没逃掉时自己再点，不按5、不回院'),
+    'walk_no_lure': dict(rounds=12, faults=('walk',), mode='walk', lure_check=True, expect='stop', note='单遇开了「检查香水」，战斗画面里没有香水步数：第 2 只后停下，不自动恢复'),
     'short_walk':  dict(rounds=8,  faults=('short_walk',), expect='run', note='最后一段没走到岸边（11:50 的真实故障）：补按一下D自己贴到岸边，继续刷'),
 }
 
@@ -84,6 +85,7 @@ def run(name, live):
         engine.notifier = Silent()                       # never send a real notification
         engine.native_call = game.native
         engine.background = False; engine.focus_regains = 0; engine.assistant_since = None   # as start_native: game kept in front
+        engine.lure_check = cfg.get('lure_check', False); engine._lure_missing = 0
         engine.task_mode = cfg.get('mode', 'frillish'); engine.pp_run = engine.task_mode == 'frillish'; engine.channel_run = cfg.get('channels', False); engine.next_switch = 0 if cfg.get('channels') else 3000; engine.auto_run = True
         engine.stop_event.clear()
         def go():
@@ -117,6 +119,7 @@ def run(name, live):
                 ok = ok and game.switches == 1 and game.channel == want and f'已切到频道{want}' in log
         else:
             ok = ok and engine.total_rounds < cfg['rounds'] and not worker.is_alive()
+            if cfg.get('lure_check'): ok = ok and engine.total_rounds == 2 and '香水没开' in log
         result = dict(scenario=name, passed=ok, note=cfg['note'], rounds=engine.total_rounds, escapes=game.escapes,
                       heals=game.heals, surfs=game.surfs, clicks=len(game.clicks), distinct_click_points=spread,
                       all_clicks_inside_escape=inside, problems=game.problems, last_log=last,

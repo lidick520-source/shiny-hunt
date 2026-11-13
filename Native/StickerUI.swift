@@ -444,6 +444,10 @@ struct IdleBody: View {
                     toggle("出闪提醒", "出闪立刻停，手机收通知，电脑响铃", c.state.notificationEnabled) { c.send("notification", ["enabled": $0]) }
                     Rectangle().fill(Color(hex: 0xF0EBE4)).frame(height: 1)
                     toggle("随机换频道", "每 40 到 50 分钟换一次，歇 3 到 8 分钟", c.state.channels) { c.set("channels", $0) }
+                    if c.walkMode {
+                        Rectangle().fill(Color(hex: 0xF0EBE4)).frame(height: 1)
+                        toggle("检查香水", "连续 2 只战斗里没看到香水步数，就停下提醒你", c.state.lureCheck) { c.send("settings", ["lure_check": $0]) }
+                    }
                     if !fixed {
                         Button("先测一遍回院路线（走一趟就停，每步截图）") { c.send("test_route") }
                             .buttonStyle(.link).font(.system(size: 12, weight: .semibold))

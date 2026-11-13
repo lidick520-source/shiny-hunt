@@ -135,6 +135,7 @@ class NativeEngine(App):
         self.task_mode = self.settings.get('task_mode','frillish')   # frillish = 白嫖闪 (spot list), fixed = PP果定点, walk = 走路单遇
         self.spot = spots.get(self.settings.get('spot', spots.DEFAULT_SPOT))
         self.walk_axis = self.settings.get('walk_axis','h')
+        self.lure_check = bool(self.settings.get('lure_check', False)); self._lure_missing = 0
         self.route_test = bool(route_test)
         if route_test:self.task_mode = 'frillish'
         self.auto_run = True
@@ -489,6 +490,7 @@ class NativeEngine(App):
                     channelRemaining=max(0,int(self.next_switch-self.elapsed)),
                     taskMode=str(self.settings.get('task_mode','frillish')),
                     walkAxis=str(self.settings.get('walk_axis','h')),
+                    lureCheck=bool(self.settings.get('lure_check',False)),
                     auto=True,
                     ppEnabled=self.pp_setting(),
                     gameFound=bool(game), gameFrame=(game or {}).get('frame', []), gamePid=int((game or {}).get('pid', 0)),
@@ -539,7 +541,7 @@ class NativeEngine(App):
                 if data['walk_axis'] not in ('h','v'):
                     raise ValueError('走路方向无效')
                 self.settings['walk_axis'] = data['walk_axis']
-            for key in ('channels','pp_enabled'):
+            for key in ('channels','pp_enabled','lure_check'):
                 if key in data:
                     if not isinstance(data[key], bool):
                         raise ValueError('设置值应为开关')

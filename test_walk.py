@@ -98,6 +98,13 @@ class WalkSettingsTests(unittest.TestCase):
             st = e.snapshot()
             self.assertEqual((st['taskMode'], st['walkAxis'], st['ppEnabled']), ('walk', 'v', False))
             with self.assertRaises(ValueError): e.command({'action': 'settings', 'walk_axis': 'x'})
+            self.assertFalse(e.snapshot()['lureCheck'])
+            e.command({'action': 'settings', 'lure_check': True}); self.assertTrue(e.snapshot()['lureCheck'])
+            with self.assertRaises(ValueError): e.command({'action': 'settings', 'lure_check': 'yes'})
+
+    def test_lure_off_stop_is_not_recovered(self):
+        a = WalkTests('test_mode_label').host()
+        self.assertFalse(a.recoverable(RuntimeError('香水没开：连续 2 只战斗画面里都没看到「香水步数」，已停止；开好香水再按开始')))
 
 
 if __name__ == '__main__':

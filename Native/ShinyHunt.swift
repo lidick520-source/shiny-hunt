@@ -16,6 +16,7 @@ struct EngineState: Decodable {
     var restRemaining = 0, channelRemaining = 3000
     var auto = false, ppEnabled = false, channels = false
     var taskMode = "frillish", walkAxis = "h"
+    var lureCheck = false
     var notificationEnabled = false, notificationConfigured = false
     var gameFound = false, gameFrame: [Double] = [], gamePid = 0
     var protection = "", recoveriesTotal = 0, focusRegains = 0

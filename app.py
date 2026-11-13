@@ -90,7 +90,7 @@ WALK_STILL_BATTLE=re.compile(r'Lv\.?\s*\d+|派出了|使出了|逃跑|选择战�
 def channel_interval():
  # User 2026-10-18: change channel at a random moment, every 40-50 minutes (not a fixed 50).
  return random.randint(2400,3000)
-NO_RECOVERY=('关服','闪光','验证','手动停止','F8','已关闭','缺少屏幕录制','尚未授予','窗口为','原生输入','六次遭遇完成','轻飘飘全自动','未确认是','路线测试','游戏已关闭','切不回前台','没找到 PokeMMO','自动恢复')
+NO_RECOVERY=('香水没开','关服','闪光','验证','手动停止','F8','已关闭','缺少屏幕录制','尚未授予','窗口为','原生输入','六次遭遇完成','轻飘飘全自动','未确认是','路线测试','游戏已关闭','切不回前台','没找到 PokeMMO','自动恢复')
 def CHANNEL_ROW(n):return (446,338+27*(n-1)-9,132,18)   # 频道1 y=338, step 27 (real screenshots)
 CHANNEL_WINDOW_BOX=(424,322,600,488)   # checkbox + 变更/取消, cut from the real screenshot (assets/channel_window.png)
 # 2026-10-23 琉璃市: right after a change the window shows a 「下次切换: N秒后」 row on top and everything
@@ -737,7 +737,7 @@ class App:
     self.say('OCR预热完成，已记录当前起点画面')
    while True:
     try:
-     walk=self.walking();self._walk_base=None;walk_since=time.monotonic();walk_log=time.monotonic();state='ready';partial_since=None;deadline=time.monotonic()+45;last_combat_log=0;key_sent=time.monotonic();key_retry=False;rounds=0;return_log=0;last_escape_click=0;escape_retries=0;escape_success=False;hud_frames=0
+     walk=self.walking();self._walk_base=None;lure_seen=False;walk_since=time.monotonic();walk_log=time.monotonic();state='ready';partial_since=None;deadline=time.monotonic()+45;last_combat_log=0;key_sent=time.monotonic();key_retry=False;rounds=0;return_log=0;last_escape_click=0;escape_retries=0;escape_success=False;hud_frames=0
      if resume=='battle':
       state='battle';key_retry=True;deadline=time.monotonic()+55
      elif resume=='press5' and walk:
@@ -819,6 +819,8 @@ class App:
        button=escape_region(data)
        if '验证码' in data['text']:
         self.diagnostic(im,data,'protected');raise RuntimeError('检测到验证码文字，已停止，请检查画面')
+       # In battle the HUD (with 「247香水步数」 while a lure runs) is read reliably, unlike on the map.
+       if walk and re.search(r'香水步',data['text']):lure_seen=True
        if time.monotonic()-last_combat_log>=4:
         self.diagnostic(im,data,'battle');self.say(('已找到逃跑文字位置' if button else '未找到逃跑菜单')+'；当前OCR：'+data['text'][:180]);last_combat_log=time.monotonic()
        if not walk and not button and on_map and not self.battle_evidence(data) and time.monotonic()-key_sent>8 and not key_retry:
@@ -903,7 +905,15 @@ class App:
        if stable>=2:
         rounds+=1;self.total_rounds+=1
         if self.pp_run:due=self.pp_progress.encounter_done();self.say(f'第{rounds}轮完成；PP {self.pp_progress.completed}/6')
-        elif walk:due=False;self.say(f'第{rounds}只完成（走路单遇）')
+        elif walk:
+         due=False;self.say(f'第{rounds}只完成（走路单遇）')
+         if getattr(self,'lure_check',False):
+          # 2026-11-13 user: the lure was often found off. Two battles in a row without 「香水步数」 = off.
+          self._lure_missing=0 if lure_seen else getattr(self,'_lure_missing',0)+1
+          if self._lure_missing==1:self.say('  这一只的战斗画面里没看到「香水步数」，下一只再确认一次')
+          if self._lure_missing>=2:
+           self._lure_missing=0;raise RuntimeError('香水没开：连续 2 只战斗画面里都没看到「香水步数」，已停止；开好香水再按开始')
+         lure_seen=False
         else:due=False;self.say(f'第{rounds}轮完成（PP果定点：不回院，一直刷）')
         stable=0
         ui=self.blocking_ui(im,data)
