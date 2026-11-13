@@ -118,6 +118,7 @@ def hud_channel(text):
  # Old HUD (until 2026-10-30): 「Ch.2」. Game update 2026-10-31: 「城镇 · 频道1」.
  m=re.search(r'(?:Ch\.?|频道)\s*([1-9])(?!\d)',str(text or ''));return int(m.group(1)) if m else None
 SERVER_SHUTDOWN=re.compile(r'服务器关闭|关服说明')
+OLD_HUD_MARK=re.compile(r'Ch\.|Ch(?![A-Za-z])')   # old HUD 「Ch.2」; not English map names such as Chargestone
 def new_game_ui(data):
  # The 2026-10-31 PokeMMO update moved the HUD and the bottom-right icon bar: the HUD line reads
  # 「城镇·频道1」 instead of 「Ch.1」. The old channel-menu positions do not apply there.
@@ -666,9 +667,13 @@ class App:
    return None,None
   log('当前画面')
   hud_text=self.read((0,0,330,30));hud_before=hud_channel(hud_text)
-  if new_game_ui({'lines':[{'y':10,'text':hud_text}]}):
+  if new_game_ui({'lines':[{'y':10,'text':hud_text}]}) or not OLD_HUD_MARK.search(hud_text):
    # Clicking the old icon position now opens the 孵蛋器 window (2026-10-31 01:30-02:09, five times),
    # then the recovery walked the whole hospital route. Until the new entry is measured: no clicks.
+   # 2026-11-13 21:48-22:59 沙漠的地下道（DesertUnderpass）: the long map name pushed 「频道1」 out of
+   # the 330 px HUD crop, the new UI went unrecognised, the old icon was clicked 7 times and the window it
+   # opened blocked walking (90 s without encounters, 3 recoveries, stopped). Old positions are only
+   # clicked when the old 「Ch.」 HUD is actually seen.
    self.next_switch=self.elapsed+channel_interval()
    self.say('  游戏更新后换了新界面，换频道入口还没重新量过：这次先不换，继续刷');return
   # Positions verified on real screenshots 2026-10-18 18:14-18:19 (game window coordinates).

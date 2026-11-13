@@ -28,6 +28,19 @@ class GameUpdateTests(unittest.TestCase):
         a._switch()
         a.click.assert_not_called(); self.assertGreater(a.next_switch, 100)
 
+    def test_long_map_name_hiding_the_channel_never_clicks_old_icon(self):
+        # 2026-11-13 沙漠的地下道: the 330 px HUD crop ends before 「频道1」.
+        a = self.host(); a.elapsed = 100; a.next_switch = 0; a.click = Mock()
+        a.capture = Mock(return_value=Image.new('RGB', (1024, 768))); a.switch_snapshot = Mock()
+        a.read = Mock(return_value='沙漠的地下道（DesertUnd…')
+        a._switch()
+        a.click.assert_not_called(); self.assertGreater(a.next_switch, 100)
+
+    def test_old_hud_mark_ignores_english_map_names(self):
+        self.assertTrue(app.OLD_HUD_MARK.search('帆巴市(地) Ch. 2'))
+        self.assertTrue(app.OLD_HUD_MARK.search('Ch.'))
+        self.assertFalse(app.OLD_HUD_MARK.search('电气石洞穴（ChargestoneCave）'))
+
     def test_server_shutdown_stops_without_recovery(self):
         a = self.host(); im = Image.new('RGB', (1024, 768))
         with self.assertRaises(RuntimeError) as cm:
