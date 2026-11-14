@@ -447,8 +447,10 @@ struct IdleBody: View {
                     if c.walkMode {
                         Rectangle().fill(Color(hex: 0xF0EBE4)).frame(height: 1)
                         toggle("检查香水", "连续 2 只战斗里没看到香水步数，就停下提醒你", c.state.lureCheck) { c.send("settings", ["lure_check": $0]) }
+                        Rectangle().fill(Color(hex: 0xF0EBE4)).frame(height: 1)
+                        toggle("抓百变", "遇到百变怪：1号技能点到为止，3号技能蘑菇孢子，睡着后按 3 扔球", c.state.dittoCatch) { c.send("settings", ["ditto_catch": $0]) }
                     }
-                    if !fixed {
+                    if !fixed && !c.walkMode {
                         Button("先测一遍回院路线（走一趟就停，每步截图）") { c.send("test_route") }
                             .buttonStyle(.link).font(.system(size: 12, weight: .semibold))
                             .disabled(!canChange || !c.state.gameFound)
