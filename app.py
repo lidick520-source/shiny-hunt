@@ -76,6 +76,9 @@ TOURNAMENT_CLOSE=(845,181,8,8)         # × of the 锦标赛报名 window (real 
 PVP_ICON=(837,740,16,16)               # 4th bottom-right icon (pokeball)
 # 「更换频道」 row of the book menu: the same place on every real screenshot (帆巴市 2026-10-18, 琉璃市 2026-10-23).
 SOCIAL_CHANGE_CHANNEL=(778,647,82,20)
+# New UI (game update 2026-10-31), bottom-right bar at y 735 (real screenshots 2026-11-14): ... 878 globe, 912 mail,
+# 946 gift, 990 ≡. The channel entry is not measured yet: try the globe, then ≡, and go only by the words that appear.
+NEW_UI_CHANNEL_ENTRIES=(('右下角地球图标',(870,727,16,16)),('右下角≡菜单',(982,727,16,16)))
 # Empty game-world spot left of the player. 2026-10-23 琉璃市: after the book icon was clicked to close its
 # menu, the icon kept keyboard focus, so the nurse's 空格 reopened the menu and opened 好友 instead.
 # A click on the world hands the keyboard back to the game.
@@ -888,6 +891,55 @@ class App:
     for old in folder.glob('*.png'):old.unlink()
    self.capture().save(folder/f'{step:02d}-{label}.png',compress_level=1)
   except Exception:pass
+ def ocr_lines(self):
+  return self.check_verification(self.capture()).get('lines',[])
+ def hud_now(self):
+  # Whole top line (not a 330 px crop: long map names push 「频道1」 out of it, 2026-11-13 沙漠的地下道).
+  return hud_channel(' '.join(l['text'] for l in self.ocr_lines() if l['y']<40))
+ def new_ui_switch(self,log):
+  """New UI channel change, by words only. Any step not found: close what was opened (ESC only while new
+  window text is on screen - ESC on the plain map opens the menu), skip, retry in 10 minutes. Never stops."""
+  def rect(l):return (int(l['x'])-8,int(l['y'])-4,int(l['w'])+16,int(l['h'])+8)
+  base={cn_norm(l['text']) for l in self.ocr_lines()}
+  def new_lines():return [l for l in self.ocr_lines() if l['y']>=40 and cn_norm(l['text']) not in base]
+  def close():
+   for _ in range(3):
+    if not new_lines():return
+    self.press(ESC_KEY);self.wait(.8)
+  def skip(why):
+   close();self.defocus_ui();self.next_switch=self.elapsed+600
+   self.say(f'  新界面换频道没成功（{why}），已关掉打开的窗口，10 分钟后再试，截图在 diagnostics/channel-switch')
+  old=self.hud_now()
+  if not old:return skip('左上角读不出当前频道')
+  rows=None
+  for name,icon in NEW_UI_CHANNEL_ENTRIES:
+   self.click(icon);self.wait(1);log(f'点{name}')
+   found=new_lines()
+   item=next((l for l in found if re.search(r'更换频道|切换频道|频道选择|选择频道',cn_norm(l['text']))),None)
+   if item and not re.match(r'频道[1-9]',cn_norm(item['text'])):
+    self.click(rect(item));self.wait(1);log(f'点「{item["text"]}」');found=new_lines()
+   rows=[l for l in found if re.match(r'频道\s*[1-9](?!\d)',cn_norm(l['text']))]
+   if rows:break
+   close()
+  if not rows:return skip('地球图标和≡菜单里都没看到频道列表')
+  options={}
+  for l in rows:
+   t=cn_norm(l['text']);n=int(re.match(r'频道([1-9])',t).group(1))
+   if n!=old and '当前' not in t:options[n]=l
+  if not options:return skip(f'列表里只有当前频道{old}')
+  ordered=sorted(options);target=next((c for c in ordered if c>old),ordered[0])
+  self.click(rect(options[target]));self.wait(.8);log(f'点「频道{target}」')
+  button=next((l for l in new_lines() if re.fullmatch(r'(变更|确定|确认|切换|更换|加入|进入)',cn_norm(l['text']))),None)
+  if button:self.click(rect(button));log(f'点「{button["text"]}」')
+  deadline=time.monotonic()+12
+  while time.monotonic()<deadline:
+   self.wait(1)
+   if self.hud_now()==target:break
+  else:return skip(f'点完后左上角还不是频道{target}')
+  if any(re.match(r'频道[1-9]',cn_norm(l['text'])) for l in new_lines()):self.press(ESC_KEY);self.wait(.8)   # list still open
+  self.defocus_ui();log(f'已切到频道{target}')
+  gap=channel_interval();self.next_switch=self.elapsed+gap;self.rest_until=time.monotonic()+random.randint(180,480)
+  self.say(f'已切到频道{target}，随机休息至倒计时结束；下次换频道在 {gap//60} 分钟后')
  def switch(self):
   try:return self._switch()
   except RuntimeError:
@@ -947,8 +999,7 @@ class App:
    # the 330 px HUD crop, the new UI went unrecognised, the old icon was clicked 7 times and the window it
    # opened blocked walking (90 s without encounters, 3 recoveries, stopped). Old positions are only
    # clicked when the old 「Ch.」 HUD is actually seen.
-   self.next_switch=self.elapsed+channel_interval()
-   self.say('  游戏更新后换了新界面，换频道入口还没重新量过：这次先不换，继续刷');return
+   return self.new_ui_switch(log)
   # Positions verified on real screenshots 2026-10-18 18:14-18:19 (game window coordinates).
   score,dy=self.open_channel_window(log)
   if score>=.8 and dy>5:
