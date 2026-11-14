@@ -92,14 +92,23 @@ DITTO=re.compile(r'百变')
 DITTO_MOVES={1:('点到为止',r'点到'),3:('蘑菇孢子',r'蘑菇|孢子|包子')}
 BALL_KEY=0x33
 DITTO_MAX_ACTIONS=20
-DITTO_ASLEEP=re.compile(r'睡着|呼呼大睡|睡觉|睡眠')
+DITTO_ASLEEP=re.compile(r'睡着|睡得|呼呼大睡|睡觉|睡眠')   # 16:57 real: 「野生的百变怪'普睡得很香.」
 DITTO_MISSED=re.compile(r'没有效果|但是失败|没有命中|没有打中|避开|不会有任何效果')
 DITTO_NO_PP=re.compile(r'没有剩余|PP不足|PP用完|没有PP')
-DITTO_CAUGHT_WORDS=re.compile(r'收服|抓到了|成功捕获|送到了?电脑|送往')
-DITTO_NEAR_MISS=re.compile(r'差一点|差点|就快|可惜|糟糕|挣脱|逃出')
+DITTO_CAUGHT_WORDS=re.compile(r'收服|成功捕获|送到了?电脑|送往')
+DITTO_NEAR_MISS=re.compile(r'差一点|差点|就快|就要|看起来|可惜|糟糕|挣脱|逃出')
 def caught_text(t):
- # 2026-11-14 16:49: a failed ball says 「差一点就抓到了」 - that is not a catch. Success: 「抓到了！收服到百变怪'普了！」
+ # Success: 「抓到了！」 then 「收服到百变怪'普了！」. Failed balls also say 抓到了 (16:49 「差一点就抓到了」,
+ # 16:58 again), so only 收服 / sent to the PC count.
  t=cn_norm(t);return bool(DITTO_CAUGHT_WORDS.search(t)) and not DITTO_NEAR_MISS.search(t)
+LEAD_HP_BOX=(560,300,900,400)   # our lead's 「93 / 234」 under its plate (real 16:59: y 340; full HP frames: y 370)
+def lead_hp(data):
+ x0,y0,x1,y1=LEAD_HP_BOX
+ for l in data.get('lines',[]):
+  if not(x0<=l['x']<=x1 and y0<=l['y']<=y1):continue
+  m=re.fullmatch(r'(\d{1,3})/(\d{2,3})',cn_norm(l['text']))
+  if m and 0<=int(m.group(1))<=int(m.group(2)):return int(m.group(1)),int(m.group(2))
+ return None
 ESC_KEY=0x1B
 # User 2026-11-14 16:40: after a catch the game opens the 「宝可梦 资料」 window (real screenshot 16:50:46:
 # title 宝可梦 资料, 质子 / 这只宝可梦没有质子, 持有道具: 无, 百变怪'普 Lv. 35). ESC closes it. It covers only the
@@ -537,21 +546,24 @@ class App:
   started=time.monotonic();texts=[];gone=False;map_frames=0;last_log=started;stale_since=None;caught_at=None
   while True:
    im=self.capture();data=self.check_verification(im);button=escape_region(data);now=time.monotonic()
-   texts.extend(cn_norm(l['text']) for l in data.get('lines',[]))
    if not button:gone=True
-   if button and gone and now-started>=1.5:return 'menu',button,texts
-   if info_page(data):return 'page',None,texts
+   if gone:texts.extend(cn_norm(l['text']) for l in data.get('lines',[]))   # last turn's message is not this turn's
+   if button and gone and now-started>=1.5:return 'menu',button,texts,data
+   if info_page(data):return 'page',None,texts,data
    if not button and any(caught_text(t) for t in texts):
     caught_at=caught_at or now
-    if now-caught_at>=4:return 'page',None,texts   # caught, the battle window is closing / a page opens
-   if button and not gone and now-started>=6:return 'ignored',button,texts
-   if stale and not button and any(inside(l,stale[1]) and re.search(stale[0],cn_norm(l['text'])) for l in data.get('lines',[])):
+    if now-caught_at>=4:return 'page',None,texts,data   # caught, the battle window is closing / a page opens
+   if button and not gone and now-started>=6:return 'ignored',button,texts,data
+   # The move menu still open = the move button and its 「PP: 21 / 24」. 16:56:53: the battle message 「使出了蘑菇孢子」
+   # in the same place was taken for the button and the move was clicked again.
+   if stale and not button and any(inside(l,stale[1]) and re.search(stale[0],cn_norm(l['text'])) and '使出' not in l['text'] for l in data.get('lines',[])) \
+      and any(inside(l,stale[1]) and 'PP' in l['text'].upper() for l in data.get('lines',[])):
     stale_since=stale_since or now
-    if now-stale_since>=3.5:return 'ignored',None,texts
+    if now-stale_since>=4:return 'ignored',None,texts,data
    else:stale_since=None
    on_map=not button and self.walk_map(im) and not WALK_STILL_BATTLE.search(data['text'])
    map_frames=map_frames+1 if on_map else 0
-   if map_frames>=2 and now-started>=2.5:return 'map',None,texts
+   if map_frames>=2 and now-started>=2.5:return 'map',None,texts,data
    if self.blocking_ui(im,data)=='yes_no':
     self.diagnostic(im,data,'ditto-yes-no')
     raise RuntimeError(f'抓百变：{what}之后出现了是/否选择框，不知道该选哪个，已停止，截图在 diagnostics/latest-screen.png')
@@ -568,7 +580,7 @@ class App:
     if not swiped:what='点到为止';target=self.ditto_move(1,escape)
     elif not asleep or balls>=3:what='蘑菇孢子';target=self.ditto_move(3,escape)   # 3 balls without a catch: sleep may be over
     else:what='扔精灵球';target=None;thrown+=1;self.press(BALL_KEY);self.say(f'  抓百变：按3扔精灵球（这只第{thrown}个）')
-   result,button,texts=self.ditto_turn(what,stale=None if target is None else (DITTO_MOVES[1 if what=='点到为止' else 3][1],target))
+   result,button,texts,data=self.ditto_turn(what,stale=None if target is None else (DITTO_MOVES[1 if what=='点到为止' else 3][1],target))
    if result=='ignored':
     if retried:raise RuntimeError('抓百变：按3两次都没扔出球，已停止；检查快捷键3是不是精灵球、球还有没有' if target is None else f'抓百变：点了两次「{what}」游戏都没反应，已停止')
     retried=True;self.say(f'  抓百变：{what}游戏没反应，再来一次')
@@ -579,24 +591,25 @@ class App:
    if any(DITTO_NO_PP.search(t) for t in texts):raise RuntimeError(f'抓百变：游戏提示PP不够了（{what}），已停止；回中心补满 PP 再开始')
    if result in ('map','page'):
     if what=='扔精灵球' or any(caught_text(t) for t in texts):
-     self.ditto_caught=getattr(self,'ditto_caught',0)+1;self.say(f'抓到百变怪了！这次开始后共抓到 {self.ditto_caught} 只')
-     self.close_info_page()
-     self.say('  抓百变：已回到地图，继续走')
+     back,button=self.close_info_page()
+     if back=='battle':   # the battle menu came back: that ball did not catch it after all
+      self.say('  抓百变：战斗菜单又出现了，这个球其实没抓住，继续');escape=button;balls+=1;continue
+     self.ditto_caught=getattr(self,'ditto_caught',0)+1;self.say(f'抓到百变怪了！这次开始后共抓到 {self.ditto_caught} 只，继续走')
     else:self.say(f'  抓百变：{what}之后战斗就结束了，没看到捕获提示，继续走')
     self.mode='刷怪';return
    escape=button
+   hp=lead_hp(data)
+   if hp and hp[0]*4<hp[1]:raise RuntimeError(f'抓百变：图图犬只剩 {hp[0]}/{hp[1]} 血，已停止；回中心补血再开始')
    ditto_lines=[t for t in texts if DITTO.search(t)]
+   ours_asleep=any(DITTO_ASLEEP.search(t) and '图图' in t and not DITTO.search(t) and '使出' not in t for t in texts)   # our lead 图图犬
    if what=='点到为止':swiped=True
    elif what=='蘑菇孢子':
-    ours_asleep=any(re.search(r'呼呼大睡',t) and not DITTO.search(t) for t in texts)   # our lead slept: no move
-    if any(DITTO_ASLEEP.search(t) for t in ditto_lines):asleep=True
-    elif any(DITTO_MISSED.search(t) for t in texts) or ours_asleep:asleep=False
-    else:asleep=True   # 蘑菇孢子 always hits; the message is often missed by OCR
-    if asleep:balls=0
-    self.say('  抓百变：百变怪睡着了，下一步扔球' if asleep else '  抓百变：蘑菇孢子没成功，再来一次')
+    # 蘑菇孢子 always hits; 「失败」 means it was already asleep. Only our own lead sleeping stops it.
+    asleep=not ours_asleep;balls=0 if asleep else balls
+    self.say('  抓百变：百变怪睡着了，下一步扔球' if asleep else '  抓百变：图图犬自己睡着了，孢子没放出来，再来一次')
    else:
     balls+=1;self.say(f'  抓百变：第{thrown}个球没抓住')
-   if any(re.search(r'醒',t) for t in ditto_lines):asleep=False;self.say('  抓百变：百变怪醒了，再用蘑菇孢子')
+    if any(re.search(r'醒',t) for t in ditto_lines):asleep=False;self.say('  抓百变：百变怪醒了，再用蘑菇孢子')
   raise RuntimeError(f'抓百变：出手{DITTO_MAX_ACTIONS}次还没抓到，已停止，请手动看一下')
  def caught_snapshot(self,im,label):
   try:
@@ -607,14 +620,16 @@ class App:
   """After a catch: the info page opens (user 2026-11-14); ESC closes it. ESC only when the page is recognised by its
   words, or after 6 s when the screen is neither the map nor the battle (something unrecognised covers it).
   Done when the plain map is back for 2 frames, at least 2.5 s after the catch."""
-  started=time.monotonic();presses=0;map_frames=0;last_esc=0
+  started=time.monotonic();presses=0;map_frames=0;last_esc=0;menu_frames=0
   while True:
    im=self.capture();data=self.check_verification(im);now=time.monotonic()
    page=info_page(data)
    plain=not page and not escape_region(data) and self.walk_map(im) and not WALK_STILL_BATTLE.search(data['text'])
    map_frames=map_frames+1 if plain else 0
    if map_frames>=2 and now-started>=(2.5 if presses else 5):
-    self.caught_snapshot(im,'closed' if presses else 'no-page');return
+    self.caught_snapshot(im,'closed' if presses else 'no-page');return 'map',None
+   button=escape_region(data);menu_frames=menu_frames+1 if button else 0
+   if menu_frames>=2:self.caught_snapshot(im,'battle-again');return 'battle',button   # not caught: the menu is back
    # The page shows 「Lv.」 too, so a battle is told by its menu and the catch messages, not by Lv.
    cover=not plain and not escape_region(data) and not caught_text(data['text']) and now-started>=6
    if (page or cover) and now-last_esc>=1.5:

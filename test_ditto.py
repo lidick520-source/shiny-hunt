@@ -83,7 +83,7 @@ class DittoTests(unittest.TestCase):
 
     def catch_host(self, turns):
         a = self.host(); a.ditto_move = Mock(side_effect=lambda slot, esc: ('move', slot))
-        a.ditto_turn = Mock(side_effect=turns); a.close_info_page = Mock()
+        a.ditto_turn = Mock(side_effect=turns); a.close_info_page = Mock(return_value=('map', None))
         return a
 
     def actions(self, a):
@@ -91,47 +91,67 @@ class DittoTests(unittest.TestCase):
         return moves, a.press.call_args_list
 
     def test_swipe_spore_ball_caught(self):
-        a = self.catch_host([('menu', ESCAPE, ['图图犬使出了点到为止']),
-                             ('menu', ESCAPE, ['野生的百变怪睡着了']),
-                             ('map', None, ['抓到了百变怪'])])
+        a = self.catch_host([('menu', ESCAPE, ['图图犬使出了点到为止'], {}),
+                             ('menu', ESCAPE, ['野生的百变怪睡着了'], {}),
+                             ('map', None, ['抓到了百变怪'], {})])
         a.catch_ditto(ESCAPE)
         moves, presses = self.actions(a)
         self.assertEqual(moves, [1, 3]); self.assertEqual([p[0][0] for p in presses], [app.BALL_KEY])
         self.assertEqual(a.ditto_caught, 1)
 
-    def test_missed_spore_is_used_again(self):
-        a = self.catch_host([('menu', ESCAPE, []), ('menu', ESCAPE, ['但是失败了']),
-                             ('menu', ESCAPE, []), ('map', None, [])])
+    def test_failed_spore_means_already_asleep(self):
+        # 16:56: Spore on a sleeping Ditto fails; that is not a reason to spore again (3 wasted turns).
+        a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, ['但是失败了'], {}), ('map', None, [], {})])
         a.catch_ditto(ESCAPE)
-        self.assertEqual(self.actions(a)[0], [1, 3, 3])
+        moves, presses = self.actions(a)
+        self.assertEqual(moves, [1, 3]); self.assertEqual(len(presses), 1)
+
+    def test_sleeping_well_message_and_no_wake_in_spore_turn(self):
+        a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, ["野生的百变怪'普睡得很香.", '百变怪醒过来了'], {}), ('map', None, [], {})])
+        a.catch_ditto(ESCAPE)
+        self.assertEqual(self.actions(a)[0], [1, 3])                        # a 醒 in the spore turn is ignored
+
+    def test_low_hp_lead_stops(self):
+        hp = {'lines': [line('50 / 234', 700, 340)]}
+        a = self.catch_host([('menu', ESCAPE, [], hp)])
+        with self.assertRaisesRegex(RuntimeError, '50/234'):
+            a.catch_ditto(ESCAPE)
+        self.assertEqual(app.lead_hp({'lines': [line('93 / 234', 700, 340)]}), (93, 234))
+
+    def test_menu_back_after_a_catch_means_not_caught(self):
+        a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, [], {}), ('page', None, [], {}),
+                             ('page', None, ["收服到百变怪'普了！"], {})])
+        a.close_info_page = Mock(side_effect=[('battle', ESCAPE), ('map', None)])
+        a.catch_ditto(ESCAPE)
+        self.assertEqual(len(a.press.call_args_list), 2); self.assertEqual(a.ditto_caught, 1)
 
     def test_our_sleeping_lead_does_not_count_as_spore(self):
-        a = self.catch_host([('menu', ESCAPE, []), ('menu', ESCAPE, ['图图犬正在呼呼大睡']),
-                             ('menu', ESCAPE, []), ('map', None, [])])
+        a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, ['图图犬正在呼呼大睡'], {}),
+                             ('menu', ESCAPE, [], {}), ('map', None, [], {})])
         a.catch_ditto(ESCAPE)
         self.assertEqual(self.actions(a)[0], [1, 3, 3])
 
     def test_woken_ditto_gets_spore_again(self):
-        a = self.catch_host([('menu', ESCAPE, []), ('menu', ESCAPE, []),
-                             ('menu', ESCAPE, ['百变怪醒了']), ('menu', ESCAPE, []), ('map', None, [])])
+        a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, [], {}),
+                             ('menu', ESCAPE, ['百变怪醒了'], {}), ('menu', ESCAPE, [], {}), ('map', None, [], {})])
         a.catch_ditto(ESCAPE)
         moves, presses = self.actions(a)
         self.assertEqual(moves, [1, 3, 3]); self.assertEqual(len(presses), 2)
 
     def test_three_failed_balls_spore_again(self):
-        a = self.catch_host([('menu', ESCAPE, [])] * 5 + [('map', None, [])])
+        a = self.catch_host([('menu', ESCAPE, [], {})] * 5 + [('map', None, [], {})])
         a.catch_ditto(ESCAPE)
         moves, presses = self.actions(a)
         self.assertEqual(moves, [1, 3, 3]); self.assertEqual(len(presses), 3)
 
     def test_ball_key_ignored_twice_stops(self):
-        a = self.catch_host([('menu', ESCAPE, []), ('menu', ESCAPE, []),
-                             ('ignored', ESCAPE, []), ('ignored', ESCAPE, [])])
+        a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, [], {}),
+                             ('ignored', ESCAPE, [], {}), ('ignored', ESCAPE, [], {})])
         with self.assertRaisesRegex(RuntimeError, '快捷键3'):
             a.catch_ditto(ESCAPE)
 
     def test_game_says_no_pp_stops(self):
-        a = self.catch_host([('menu', ESCAPE, ['没有剩余的PP了'])])
+        a = self.catch_host([('menu', ESCAPE, ['没有剩余的PP了'], {})])
         with self.assertRaisesRegex(RuntimeError, 'PP不够'):
             a.catch_ditto(ESCAPE)
 
@@ -140,7 +160,7 @@ class DittoTests(unittest.TestCase):
         self.assertFalse(a.recoverable(RuntimeError('抓百变：蘑菇孢子 的 PP 用完了')))
 
     def test_catch_closes_the_info_page(self):
-        a = self.catch_host([('menu', ESCAPE, []), ('menu', ESCAPE, []), ('page', None, ['抓到了！', '收服到百变怪了！'])])
+        a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, [], {}), ('page', None, ['抓到了！', '收服到百变怪了！'], {})])
         a.catch_ditto(ESCAPE)
         a.close_info_page.assert_called_once(); self.assertEqual(a.ditto_caught, 1)
 
@@ -195,11 +215,12 @@ class DittoTests(unittest.TestCase):
     def test_near_miss_is_not_a_catch(self):
         self.assertFalse(app.caught_text('糟糕！差一点就抓到了！'))
         self.assertFalse(app.caught_text('可惜！就快抓到了！'))
-        self.assertTrue(app.caught_text('抓到了！'))
+        self.assertFalse(app.caught_text('啊！看起来就要抓到了！'))
+        self.assertFalse(app.caught_text('抓到了！'))   # the first line of a catch; 收服 follows, failed balls say it too
         self.assertTrue(app.caught_text("收服到百变怪'普了！"))
         # 16:49: the ball failed, the menu came back - the catch loop must throw again, not call it caught
-        a = self.catch_host([('menu', ESCAPE, []), ('menu', ESCAPE, []), ('menu', ESCAPE, ['糟糕！差一点就抓到了！']),
-                             ('page', None, ['抓到了！', "收服到百变怪'普了！"])])
+        a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, [], {}), ('menu', ESCAPE, ['糟糕！差一点就抓到了！'], {}),
+                             ('page', None, ['抓到了！', "收服到百变怪'普了！"], {})])
         a.catch_ditto(ESCAPE)
         self.assertEqual(len(a.press.call_args_list), 2); self.assertEqual(a.ditto_caught, 1)
 
@@ -207,8 +228,43 @@ class DittoTests(unittest.TestCase):
         self.assertTrue(app.info_page({'text': '宝可梦 资料 质子: 这只宝可梦没有质子. 持有道具: 无', 'lines': []}))
         self.assertFalse(app.info_page({'text': "47号道路（Route47）百变怪'普 Lv. 35 战斗 选择战斗技能 逃跑", 'lines': []}))
 
+    def turn_host(self, frames):
+        a = self.host(); a.walk_map = Mock(return_value=False); a.blocking_ui = Mock(return_value=None)
+        a.check_verification = Mock(side_effect=frames)
+        return a
+
+    def run_turn(self, a, **kw):
+        t = [0.0]
+        def tick():
+            t[0] += 1.0; return t[0]
+        orig = app.time.monotonic; app.time.monotonic = tick
+        try: return a.ditto_turn('蘑菇孢子', **kw)
+        finally: app.time.monotonic = orig
+
+    def test_battle_message_over_the_move_button_is_not_an_ignored_click(self):
+        target = app.battle_menu_rects(ESCAPE)[3]
+        msg = {'text': '图图犬使出了蘑菇孢子！', 'lines': [line("闪光图图犬'普使出了蘑菇孢子！", 160, 548, 300)]}
+        menu = {'text': '战斗 逃跑', 'lines': [line('逃跑', 441, 544, 28, 14)]}
+        a = self.turn_host([msg] * 8 + [menu])
+        result = self.run_turn(a, stale=(r'蘑菇|孢子', target))
+        self.assertEqual(result[0], 'menu')
+
+    def test_open_move_menu_is_an_ignored_click(self):
+        target = app.battle_menu_rects(ESCAPE)[3]
+        moves = {'text': '蘑菇孢子 PP: 21 / 24', 'lines': [line('蘑菇孢子', 150, 545, 80), line('PP: 21 / 24', 260, 562, 80)]}
+        a = self.turn_host([moves] * 10)
+        self.assertEqual(self.run_turn(a, stale=(r'蘑菇|孢子', target))[0], 'ignored')
+
+    def test_text_of_the_last_turn_is_not_counted(self):
+        old = {'text': '战斗 逃跑 百变怪醒过来了', 'lines': [line('逃跑', 441, 544, 28, 14), line('百变怪醒过来了', 160, 500)]}
+        new = {'text': '睡得很香', 'lines': [line("野生的百变怪'普睡得很香.", 160, 500)]}
+        menu = {'text': '战斗 逃跑', 'lines': [line('逃跑', 441, 544, 28, 14)]}
+        a = self.turn_host([old, new, menu])
+        result, _, texts, _ = self.run_turn(a)
+        self.assertEqual(result, 'menu'); self.assertFalse(any('醒' in t for t in texts))
+
     def test_endless_battle_stops(self):
-        a = self.catch_host([('menu', ESCAPE, ['但是失败了'])] * 40)
+        a = self.catch_host([('menu', ESCAPE, ['但是失败了'], {})] * 40)
         with self.assertRaisesRegex(RuntimeError, '还没抓到'):
             a.catch_ditto(ESCAPE)
 
