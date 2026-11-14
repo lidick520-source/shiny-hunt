@@ -63,7 +63,14 @@ class DittoTests(unittest.TestCase):
         clicks = [c[0][0] for c in a.click.call_args_list]
         self.assertEqual(clicks[0], app.battle_menu_rects(ESCAPE)[1])           # 战斗 first
         self.assertEqual(clicks[1], target)
-        self.assertTrue(530 < target[1] + target[3] / 2 < 585)                  # the 蘑菇孢子 row
+        self.assertEqual(target, app.battle_menu_rects(ESCAPE)[3])              # the whole 蘑菇孢子 button
+
+    def test_name_at_the_left_end_still_clicks_inside_the_button(self):
+        # real layout 16:34: 蘑菇孢子 at x 148-208, 「PP: 21 / 24」 at x 260-338, button 143-345 / 537-582
+        a = self.move_host([line('点到为止', 148, 488), line('蘑菇孢子', 148, 541), line('PP: 21 / 24', 260, 562, 78)])
+        x, y, w, h = a.ditto_move(3, ESCAPE)
+        self.assertTrue(143 <= x and x + w <= 345 and 537 <= y and y + h <= 582)
+        self.assertTrue(app.inside(line('PP: 21 / 24', 260, 562, 78), (x, y, w, h)))   # 'not taken' check sees the PP
 
     def test_unreadable_name_uses_the_users_slot(self):
         a = self.move_host([line('？？', 215, 490), line('？？', 215, 544)])
@@ -252,6 +259,12 @@ class DittoTests(unittest.TestCase):
     def test_open_move_menu_is_an_ignored_click(self):
         target = app.battle_menu_rects(ESCAPE)[3]
         moves = {'text': '蘑菇孢子 PP: 21 / 24', 'lines': [line('蘑菇孢子', 150, 545, 80), line('PP: 21 / 24', 260, 562, 80)]}
+        a = self.turn_host([moves] * 10)
+        self.assertEqual(self.run_turn(a, stale=(r'蘑菇|孢子', target))[0], 'ignored')
+
+    def test_open_move_menu_without_readable_pp_is_still_seen(self):
+        target = app.battle_menu_rects(ESCAPE)[3]
+        moves = {'text': '蘑菇孢子 返回', 'lines': [line('蘑菇孢子', 150, 545, 80), line('B 返回', 795, 558, 80)]}
         a = self.turn_host([moves] * 10)
         self.assertEqual(self.run_turn(a, stale=(r'蘑菇|孢子', target))[0], 'ignored')
 

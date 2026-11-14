@@ -530,7 +530,12 @@ class App:
   else:raise RuntimeError('抓百变：点了两次「战斗」技能菜单都没打开，已停止')
   lines=[l for l in data.get('lines',[]) if 440<=l['y']<=640]
   hit=next((l for l in lines if re.search(pattern,cn_norm(l['text']))),None)
-  if hit:target=escape_button_area((int(hit['x'])-10,int(hit['y'])-6,int(hit['w'])+20,int(hit['h'])+12));how='按技能名'
+  if hit:
+   # Click the whole button the name sits in, not an area centred on the name: the name is at the button's left
+   # end (real 16:34 screenshot: 蘑菇孢子 at x 148, button 143-345), so a name-centred area hung off the button and
+   # some clicks missed it (17:05: the move menu stayed open 60 s).
+   cx=hit['x']+hit['w']/2;cy=hit['y']+hit['h']/2
+   target=min(rects.values(),key=lambda r:abs(r[0]+r[2]/2-cx)+abs(r[1]+r[3]/2-cy));how='按技能名'
   elif lines:target=rects[slot];how=f'技能名没读到，按{slot}号位'
   else:
    self.diagnostic(im,data,'ditto-moves');raise RuntimeError(f'抓百变：技能菜单里一个字都没读到，不敢乱点{name}，已停止，截图在 diagnostics/latest-screen.png')
@@ -557,7 +562,8 @@ class App:
    # The move menu still open = the move button and its 「PP: 21 / 24」. 16:56:53: the battle message 「使出了蘑菇孢子」
    # in the same place was taken for the button and the move was clicked again.
    if stale and not button and any(inside(l,stale[1]) and re.search(stale[0],cn_norm(l['text'])) and '使出' not in l['text'] for l in data.get('lines',[])) \
-      and any(inside(l,stale[1]) and 'PP' in l['text'].upper() for l in data.get('lines',[])):
+      and any((inside(l,stale[1]) and 'PP' in l['text'].upper()) or (cn_norm(l['text']).endswith('返回') and l['x']>=700 and l['y']>=520)
+              for l in data.get('lines',[])):   # its PP, or the move menu's own 「B 返回」 button (real 16:34: x 790-880)
     stale_since=stale_since or now
     if now-stale_since>=4:return 'ignored',None,texts,data
    else:stale_since=None
