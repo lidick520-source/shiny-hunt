@@ -646,51 +646,63 @@ class App:
    self.wait(.5)
   return None,im,data
  def use_leppa(self,pp):
-  """On the map after a catch, fill 蘑菇孢子 up with 苹野果 (+10 each), one berry at a time until full (user 19:10).
-  Real screens 19:09: hotbar 9 -> 「对哪只宝可梦使用?」 (图图犬'普 first) -> 「回复哪个技能?」 (蘑菇孢子 / PP: 0 / 24)
-  -> a confirm box with 「使用」/「取消」 - the berry is used only after 「使用」 (19:01-19:09 it was cancelled: PP never rose).
+  """On the map after a catch, fill 蘑菇孢子 up with 苹野果 in one go (user 19:10 / 00:09).
+  Real screens: hotbar 9 -> 「对哪只宝可梦使用?」 (图图犬'普) -> 「回复哪个技能?」 (蘑菇孢子 / PP: 4 / 24) -> box 「苹野果(PP果)」
+  「要对图图犬'普使用多少苹野果(PP果)?」 [-] [1] [+] [最大] / 「使用」 「取消」 (00:00: - 423, 1 488, + 552, 最大 593 at y 398;
+  使用 512,457). Each berry +10, so the count is set with + to what fills it; then a toast 「对图图犬'普使用了2x 苹野果(PP果).」
+  stays a few seconds - it is not a window (00:00:36 it was taken for one and the run stopped).
   Every step is checked by its words; screenshots go to diagnostics/leppa."""
-  self.mode='用苹野果';self.say(f'  蘑菇孢子只剩 {pp} PP：用苹野果补满');used=0;step=[0]
+  self.mode='用苹野果';step=[0]
   def snap(im):step[0]+=1;self.leppa_snapshot(im,step[0])
   def box(l):return (int(l['x'])-30,int(l['y'])-6,int(l['w'])+60,int(l['h'])+12)
-  def windows(text):return re.search(r'对哪只|回复哪个|图图犬|孢子|苹野果|恢复|回复|使用|取消',text)
+  def window_lines(data):   # lines of a real window; the 「使用了」 toast is not one
+   return [l for l in data.get('lines',[]) if '使用了' not in l['text'] and
+           re.search(r'对哪只|回复哪个|使用多少|^使用$|取消$|^最大$',cn_norm(l['text']))]   # 「B 取消」 too
   def close():
-   for _ in range(4):   # close messages and windows until the plain map is back; never ESC on the map
-    im=self.capture();data=self.check_verification(im);text=cn_norm(data['text'])
-    if not windows(text):return True
-    if dialog_bubble_white(im)>DIALOG_WHITE or re.search(r'恢复了|回复了',text):self.press(0x20)
-    else:self.press(ESC_KEY)
-    self.wait(1)
+   for _ in range(4):   # close our windows until none is left; never ESC on the map (it opens the menu)
+    im=self.capture();data=self.check_verification(im)
+    if not window_lines(data):return True
+    self.press(ESC_KEY);self.wait(1)
    return False
   def fail(why,im,data):
    self.diagnostic(im,data,'leppa');snap(im);close()
    raise RuntimeError(f'抓百变：用苹野果失败（{why}），已停止，截图在 diagnostics/leppa；可能苹野果用完了，补充后再开始')
-  for _ in range(4):
-   self.press(LEPPA_KEY);self.wait(1)
-   who,im,data=self.find_text(r'图图犬');snap(im)
-   if not who:fail('按9后没出现「对哪只宝可梦使用」',im,data)
-   self.click(box(who));self.wait(1)
-   move,im,data=self.find_text(r'蘑菇|孢子');snap(im)
-   if not move:fail('选了图图犬后没出现技能列表',im,data)
-   cur=None;top=24
-   for l in data.get('lines',[]):   # 「PP: 0 / 24」 right under the name, inside the same button
-    m=re.search(r'PP:?(\d+)/(\d+)',cn_norm(l['text']),re.I)
-    if m and abs(l['x']-move['x'])<=40 and 0<l['y']-move['y']<=40:cur,top=int(m.group(1)),int(m.group(2))
-   if cur is not None and cur>=top:
-    if not close():fail('技能列表关不掉',im,data)
-    break
-   self.click(box(move));self.wait(1)
-   origin=self.ensure();self.move_event((origin[0]+150,origin[1]+700));self.wait(.6)   # the move's tooltip covers the box
-   use,im,data=self.find_text(r'^使用$');snap(im)
-   if not use:fail('选了蘑菇孢子后没出现「使用」按钮',im,data)
-   self.click(box(use));self.wait(1.5);used+=1
-   im=self.capture();snap(im)
-   if not close():fail('用完后窗口关不掉',im,self.check_verification(im))
-   if cur is not None:
-    pp=min(top,cur+10);self.say(f'  用了第{used}个苹野果：蘑菇孢子 {cur} → {pp}/{top} PP')
-    if pp>=top:break
-  self.spore_pp=pp;self.mode='刷怪'
-  self.say(f'  苹野果用了 {used} 个，蘑菇孢子补满了，继续走' if used else '  蘑菇孢子本来就是满的，继续走')
+  self.press(LEPPA_KEY);self.wait(1)
+  who,im,data=self.find_text(r'图图犬');snap(im)
+  if not who:fail('按9后没出现「对哪只宝可梦使用」',im,data)
+  self.click(box(who));self.wait(1)
+  move,im,data=self.find_text(r'蘑菇|孢子');snap(im)
+  if not move:fail('选了图图犬后没出现技能列表',im,data)
+  cur=None;top=24
+  for l in data.get('lines',[]):   # 「PP: 4 / 24」 right under the name, inside the same button
+   m=re.search(r'PP:?(\d+)/(\d+)',cn_norm(l['text']),re.I)
+   if m and abs(l['x']-move['x'])<=40 and 0<l['y']-move['y']<=40:cur,top=int(m.group(1)),int(m.group(2))
+  if cur is None:cur=pp
+  if cur>=top:
+   close();self.spore_pp=cur;self.mode='刷怪';self.say('  蘑菇孢子本来就是满的，继续走');return
+  need=-(-(top-cur)//10)
+  self.say(f'  蘑菇孢子 {cur}/{top} PP：用 {need} 个苹野果补满')
+  self.click(box(move));self.wait(1)
+  origin=self.ensure();self.move_event((origin[0]+150,origin[1]+700));self.wait(.6)   # the move's tooltip covers the box
+  use,im,data=self.find_text(r'^使用$');snap(im)
+  if not use:fail('选了蘑菇孢子后没出现「使用」按钮',im,data)
+  most=next((l for l in data.get('lines',[]) if cn_norm(l['text'])=='最大'),None)
+  if need>1:
+   if not most:fail('没找到数量框（「最大」按钮）',im,data)
+   cx=most['x']+most['w']/2-41;plus=(int(cx)-11,int(most['y'])-4,22,int(most['h'])+8)   # 「+」 centre 41 px left of 最大's (552 / 593)
+   for _ in range(need-1):self.click(plus);self.wait(.35)
+   im=self.capture();data=self.check_verification(im);snap(im)
+   count=next((int(cn_norm(l['text'])) for l in data.get('lines',[]) if re.fullmatch(r'\d{1,2}',cn_norm(l['text']))
+               and abs(l['y']-most['y'])<=10 and most['x']-150<=l['x']<most['x']),None)
+   if count is not None and count!=need:fail(f'数量框是 {count}，应该是 {need}',im,data)
+  self.click(box(use));self.wait(1.2)
+  done,im,data=self.find_text(r'使用了',tries=4);snap(im)
+  used=need
+  if done:
+   m=re.search(r'使用了(\d+)',cn_norm(done['text']));used=int(m.group(1)) if m else need
+  if not close():im=self.capture();fail('用完后窗口关不掉',im,self.check_verification(im))
+  self.spore_pp=min(top,cur+10*used);self.mode='刷怪'
+  self.say(f'  用了 {used} 个苹野果，蘑菇孢子 {cur} → {self.spore_pp}/{top} PP，继续走'+('' if done else '（没看到使用提示，下次开技能菜单会读到真实PP）'))
  def caught_snapshot(self,im,label):
   try:
    folder=BASE/'diagnostics'/'ditto-caught';folder.mkdir(parents=True,exist_ok=True)

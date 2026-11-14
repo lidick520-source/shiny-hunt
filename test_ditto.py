@@ -147,37 +147,45 @@ class DittoTests(unittest.TestCase):
         a.check_verification = Mock(side_effect=frames)
         return a
 
-    def test_leppa_fills_spore_up_with_the_use_button(self):
-        # real screens 19:09: party list, move list with 「PP: 0 / 24」, confirm box 「使用」/「取消」
-        plain = {'text': '47号道路（Route47）', 'lines': []}
-        party = {'text': '对哪只宝可梦使用? 图图犬', 'lines': [line("图图犬'普", 396, 372, 80)]}
-        def moves(pp):
-            return {'text': f'回复哪个技能? 蘑菇孢子 PP: {pp} / 24', 'lines': [line('蘑菇孢子', 356, 432, 60), line(f'PP: {pp} / 24', 356, 452, 80)]}
-        confirm = {'text': '使用 取消', 'lines': [line('使用', 498, 450, 30), line('取消', 498, 498, 30)]}
-        rounds = []
-        for pp in (0, 10, 20):
-            rounds += [party, moves(pp), confirm, plain, plain]
-        a = self.leppa_host(rounds)
+    # real screens 2026-11-15 00:00: count box 「- 1 + 最大」 at y 398 (+ at 552, 最大 at 593), 「使用」 at (512,457)
+    party = {'text': '对哪只宝可梦使用? 图图犬', 'lines': [line("图图犬'普", 396, 372, 80)]}
+    @staticmethod
+    def moves(pp):
+        return {'text': f'回复哪个技能? 蘑菇孢子 PP: {pp} / 24 B 取消', 'lines': [line('回复哪个技能?', 352, 330, 100), line('蘑菇孢子', 356, 432, 60),
+                                                                          line(f'PP: {pp} / 24', 356, 452, 80), line('B 取消', 800, 644, 60)]}
+    @staticmethod
+    def count_box(n):
+        return {'text': f'要对图图犬使用多少苹野果(PP果)? {n} 最大 使用 取消',
+                'lines': [line('要对图图犬\'普使用多少苹野果(PP果)?', 394, 352, 250), line(str(n), 484, 391, 9),
+                          line('最大', 580, 391, 26), line('使用', 498, 450, 28), line('取消', 498, 498, 28)]}
+    toast = {'text': "对图图犬'普使用了2x 苹野果(PP果).", 'lines': [line("对图图犬'普使用了2x 苹野果(PP果).", 400, 640, 230)]}
+    plain = {'text': '47号道路（Route47）', 'lines': []}
+
+    def test_leppa_sets_the_count_and_uses_once(self):
+        a = self.leppa_host([self.party, self.moves(4), self.count_box(1), self.count_box(2), self.toast, self.toast, self.plain])
         a.ensure = Mock(return_value=(0, 0)); a.move_event = Mock()
-        a.use_leppa(0)
-        self.assertEqual([c[0][0] for c in a.press.call_args_list], [app.LEPPA_KEY] * 3)
+        a.use_leppa(4)
+        self.assertEqual([c[0][0] for c in a.press.call_args_list], [app.LEPPA_KEY])   # no ESC for the toast
         clicks = [c[0][0] for c in a.click.call_args_list]
-        self.assertEqual(len(clicks), 9); self.assertEqual(clicks[2][1], 444)   # 「使用」 each time
-        self.assertEqual(a.spore_pp, 24)
+        self.assertEqual(len(clicks), 4)                                    # 图图犬, 蘑菇孢子, +, 使用
+        plus = clicks[2]; self.assertTrue(plus[0] <= 552 <= plus[0] + plus[2])
+        self.assertEqual(clicks[3][1], 444); self.assertEqual(a.spore_pp, 24)
+
+    def test_wrong_count_cancels(self):
+        a = self.leppa_host([self.party, self.moves(0), self.count_box(1), self.count_box(5)] + [self.count_box(5), self.plain] * 3)
+        a.ensure = Mock(return_value=(0, 0)); a.move_event = Mock()
+        with self.assertRaisesRegex(RuntimeError, '数量框是 5'):
+            a.use_leppa(0)
+        self.assertNotIn(444, [c[0][0][1] for c in a.click.call_args_list])   # never 「使用」
 
     def test_leppa_stops_when_the_list_shows_full(self):
-        plain = {'text': '47号道路', 'lines': []}
-        party = {'text': '图图犬', 'lines': [line("图图犬'普", 396, 372, 80)]}
-        full = {'text': '蘑菇孢子 PP: 24 / 24', 'lines': [line('蘑菇孢子', 356, 432, 60), line('PP: 24 / 24', 356, 452, 80)]}
-        a = self.leppa_host([party, full, full, plain])
+        a = self.leppa_host([self.party, self.moves(24), self.moves(24), self.plain])
         a.use_leppa(4)
         self.assertEqual([c[0][0] for c in a.press.call_args_list], [app.LEPPA_KEY, app.ESC_KEY])
         self.assertEqual(a.click.call_count, 1)                             # only 图图犬, never 「使用」
 
     def test_missing_use_button_stops(self):
-        party = {'text': '图图犬', 'lines': [line("图图犬'普", 396, 372, 80)]}
-        moves = {'text': '蘑菇孢子 PP: 0 / 24', 'lines': [line('蘑菇孢子', 356, 432, 60), line('PP: 0 / 24', 356, 452, 80)]}
-        a = self.leppa_host([party, moves] + [moves] * 6 + [{'text': '', 'lines': []}] * 5)
+        a = self.leppa_host([self.party, self.moves(0)] + [self.moves(0)] * 6 + [self.plain] * 5)
         a.ensure = Mock(return_value=(0, 0)); a.move_event = Mock()
         with self.assertRaisesRegex(RuntimeError, '使用'):
             a.use_leppa(0)
