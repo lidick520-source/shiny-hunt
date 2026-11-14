@@ -95,13 +95,18 @@ DITTO_MAX_ACTIONS=20
 DITTO_ASLEEP=re.compile(r'睡着|呼呼大睡|睡觉|睡眠')
 DITTO_MISSED=re.compile(r'没有效果|但是失败|没有命中|没有打中|避开|不会有任何效果')
 DITTO_NO_PP=re.compile(r'没有剩余|PP不足|PP用完|没有PP')
-DITTO_CAUGHT=re.compile(r'抓到|捕获|收服|捕捉成功|图鉴|送到|送往')
+DITTO_CAUGHT_WORDS=re.compile(r'收服|抓到了|成功捕获|送到了?电脑|送往')
+DITTO_NEAR_MISS=re.compile(r'差一点|差点|就快|可惜|糟糕|挣脱|逃出')
+def caught_text(t):
+ # 2026-11-14 16:49: a failed ball says 「差一点就抓到了」 - that is not a catch. Success: 「抓到了！收服到百变怪'普了！」
+ t=cn_norm(t);return bool(DITTO_CAUGHT_WORDS.search(t)) and not DITTO_NEAR_MISS.search(t)
 ESC_KEY=0x1B
-# User 2026-11-14 16:40: after a catch the game opens the Pokemon info page; ESC closes it.
-INFO_WORDS=('性格','特性','持有物','身高','体重','个体','努力','训练家','亲密','能力','招式','分类','ID')
+# User 2026-11-14 16:40: after a catch the game opens the 「宝可梦 资料」 window (real screenshot 16:50:46:
+# title 宝可梦 资料, 质子 / 这只宝可梦没有质子, 持有道具: 无, 百变怪'普 Lv. 35). ESC closes it. It covers only the
+# middle of the screen, so the edges still look like the map.
+INFO_PAGE=re.compile(r'宝可梦资料|持有道具|没有质子')
 def info_page(data):
- text=cn_norm(data.get('text',''))
- return sum(w in text for w in INFO_WORDS)>=2 and not escape_region(data)
+ return bool(INFO_PAGE.search(cn_norm(data.get('text','')))) and not escape_region(data)
 DITTO_PLATES=(120,55,900,215)   # x0,y0,x1,y1: wild name plates (single 143, horde 97/150); our own plate is at y 337
 def ditto_plate(data):
  """True only for ONE wild 百变怪: its name plate says 百变 and no other wild plate is there.
@@ -536,13 +541,13 @@ class App:
    if not button:gone=True
    if button and gone and now-started>=1.5:return 'menu',button,texts
    if info_page(data):return 'page',None,texts
-   if not button and any(DITTO_CAUGHT.search(t) for t in texts):
+   if not button and any(caught_text(t) for t in texts):
     caught_at=caught_at or now
     if now-caught_at>=4:return 'page',None,texts   # caught, the battle window is closing / a page opens
    if button and not gone and now-started>=6:return 'ignored',button,texts
    if stale and not button and any(inside(l,stale[1]) and re.search(stale[0],cn_norm(l['text'])) for l in data.get('lines',[])):
     stale_since=stale_since or now
-    if now-stale_since>=5:return 'ignored',None,texts
+    if now-stale_since>=3.5:return 'ignored',None,texts
    else:stale_since=None
    on_map=not button and self.walk_map(im) and not WALK_STILL_BATTLE.search(data['text'])
    map_frames=map_frames+1 if on_map else 0
@@ -573,7 +578,7 @@ class App:
    retried=False
    if any(DITTO_NO_PP.search(t) for t in texts):raise RuntimeError(f'抓百变：游戏提示PP不够了（{what}），已停止；回中心补满 PP 再开始')
    if result in ('map','page'):
-    if what=='扔精灵球' or any(DITTO_CAUGHT.search(t) for t in texts):
+    if what=='扔精灵球' or any(caught_text(t) for t in texts):
      self.ditto_caught=getattr(self,'ditto_caught',0)+1;self.say(f'抓到百变怪了！这次开始后共抓到 {self.ditto_caught} 只')
      self.close_info_page()
      self.say('  抓百变：已回到地图，继续走')
@@ -608,11 +613,10 @@ class App:
    page=info_page(data)
    plain=not page and not escape_region(data) and self.walk_map(im) and not WALK_STILL_BATTLE.search(data['text'])
    map_frames=map_frames+1 if plain else 0
-   if map_frames>=2 and now-started>=2.5:
-    if presses:self.caught_snapshot(im,'closed')
-    return
+   if map_frames>=2 and now-started>=(2.5 if presses else 5):
+    self.caught_snapshot(im,'closed' if presses else 'no-page');return
    # The page shows 「Lv.」 too, so a battle is told by its menu and the catch messages, not by Lv.
-   cover=not plain and not escape_region(data) and not DITTO_CAUGHT.search(cn_norm(data['text'])) and now-started>=6
+   cover=not plain and not escape_region(data) and not caught_text(data['text']) and now-started>=6
    if (page or cover) and now-last_esc>=1.5:
     if presses>=3:
      self.diagnostic(im,data,'ditto-page');raise RuntimeError('抓百变：抓到后按了3次ESC画面还没回到地图，已停止，截图在 diagnostics/ditto-caught')

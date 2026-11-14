@@ -159,7 +159,7 @@ class DittoTests(unittest.TestCase):
         finally: app.time.monotonic = orig
 
     def test_info_page_gets_esc_then_map(self):
-        page = {'text': "百变怪'普 Lv.35 性格 胆小 特性 变身者 持有物 无", 'lines': []}
+        page = {'text': "宝可梦 资料 质子: 这只宝可梦没有质子. 百变怪'普 Lv. 35 一般 持有道具: 无", 'lines': []}   # real 16:50:46
         plain = {'text': '47号道路（Route47）道路・频道11', 'lines': []}
         a = self.page_host([page, plain, plain, plain], [False, True, True, True])
         self.run_page(a)
@@ -167,7 +167,7 @@ class DittoTests(unittest.TestCase):
 
     def test_no_page_no_esc(self):
         plain = {'text': '47号道路（Route47）道路・频道11', 'lines': []}
-        a = self.page_host([plain] * 5, [True] * 5)
+        a = self.page_host([plain] * 8, [True] * 8)
         self.run_page(a)
         a.press.assert_not_called()                                         # ESC on the map would open the menu
 
@@ -186,11 +186,26 @@ class DittoTests(unittest.TestCase):
         self.assertEqual(len(a.press.call_args_list), 1)
 
     def test_page_that_never_closes_stops(self):
-        page = {'text': '性格 特性 持有物', 'lines': []}
+        page = {'text': '宝可梦 资料 持有道具: 无', 'lines': []}
         a = self.page_host([page] * 60, [False] * 60)
         with self.assertRaisesRegex(RuntimeError, 'ESC'):
             self.run_page(a)
         self.assertEqual(a.press.call_count, 3)
+
+    def test_near_miss_is_not_a_catch(self):
+        self.assertFalse(app.caught_text('糟糕！差一点就抓到了！'))
+        self.assertFalse(app.caught_text('可惜！就快抓到了！'))
+        self.assertTrue(app.caught_text('抓到了！'))
+        self.assertTrue(app.caught_text("收服到百变怪'普了！"))
+        # 16:49: the ball failed, the menu came back - the catch loop must throw again, not call it caught
+        a = self.catch_host([('menu', ESCAPE, []), ('menu', ESCAPE, []), ('menu', ESCAPE, ['糟糕！差一点就抓到了！']),
+                             ('page', None, ['抓到了！', "收服到百变怪'普了！"])])
+        a.catch_ditto(ESCAPE)
+        self.assertEqual(len(a.press.call_args_list), 2); self.assertEqual(a.ditto_caught, 1)
+
+    def test_the_real_info_page_is_recognised_and_not_the_battle(self):
+        self.assertTrue(app.info_page({'text': '宝可梦 资料 质子: 这只宝可梦没有质子. 持有道具: 无', 'lines': []}))
+        self.assertFalse(app.info_page({'text': "47号道路（Route47）百变怪'普 Lv. 35 战斗 选择战斗技能 逃跑", 'lines': []}))
 
     def test_endless_battle_stops(self):
         a = self.catch_host([('menu', ESCAPE, ['但是失败了'])] * 40)
