@@ -147,17 +147,40 @@ class DittoTests(unittest.TestCase):
         a.check_verification = Mock(side_effect=frames)
         return a
 
-    def test_leppa_flow_clicks_lead_then_spore(self):
+    def test_leppa_fills_spore_up_with_the_use_button(self):
+        # real screens 19:09: party list, move list with 「PP: 0 / 24」, confirm box 「使用」/「取消」
         plain = {'text': '47号道路（Route47）', 'lines': []}
-        party = {'text': '图图犬', 'lines': [line("闪光图图犬'普", 420, 300, 100)]}
-        moves = {'text': '蘑菇孢子 PP 3/24', 'lines': [line('蘑菇孢子', 430, 360, 70)]}
-        done = {'text': '蘑菇孢子的PP恢复了', 'lines': [line('蘑菇孢子的PP恢复了', 300, 600, 200)]}
-        a = self.leppa_host([party, moves, done, done, plain])
-        a.use_leppa(3)
-        self.assertEqual([c[0][0] for c in a.press.call_args_list], [app.LEPPA_KEY, 0x20])
+        party = {'text': '对哪只宝可梦使用? 图图犬', 'lines': [line("图图犬'普", 396, 372, 80)]}
+        def moves(pp):
+            return {'text': f'回复哪个技能? 蘑菇孢子 PP: {pp} / 24', 'lines': [line('蘑菇孢子', 356, 432, 60), line(f'PP: {pp} / 24', 356, 452, 80)]}
+        confirm = {'text': '使用 取消', 'lines': [line('使用', 498, 450, 30), line('取消', 498, 498, 30)]}
+        rounds = []
+        for pp in (0, 10, 20):
+            rounds += [party, moves(pp), confirm, plain, plain]
+        a = self.leppa_host(rounds)
+        a.ensure = Mock(return_value=(0, 0)); a.move_event = Mock()
+        a.use_leppa(0)
+        self.assertEqual([c[0][0] for c in a.press.call_args_list], [app.LEPPA_KEY] * 3)
         clicks = [c[0][0] for c in a.click.call_args_list]
-        self.assertEqual(len(clicks), 2); self.assertEqual(clicks[0][1], 294); self.assertEqual(clicks[1][1], 354)
-        self.assertEqual(a.spore_pp, 13)
+        self.assertEqual(len(clicks), 9); self.assertEqual(clicks[2][1], 444)   # 「使用」 each time
+        self.assertEqual(a.spore_pp, 24)
+
+    def test_leppa_stops_when_the_list_shows_full(self):
+        plain = {'text': '47号道路', 'lines': []}
+        party = {'text': '图图犬', 'lines': [line("图图犬'普", 396, 372, 80)]}
+        full = {'text': '蘑菇孢子 PP: 24 / 24', 'lines': [line('蘑菇孢子', 356, 432, 60), line('PP: 24 / 24', 356, 452, 80)]}
+        a = self.leppa_host([party, full, full, plain])
+        a.use_leppa(4)
+        self.assertEqual([c[0][0] for c in a.press.call_args_list], [app.LEPPA_KEY, app.ESC_KEY])
+        self.assertEqual(a.click.call_count, 1)                             # only 图图犬, never 「使用」
+
+    def test_missing_use_button_stops(self):
+        party = {'text': '图图犬', 'lines': [line("图图犬'普", 396, 372, 80)]}
+        moves = {'text': '蘑菇孢子 PP: 0 / 24', 'lines': [line('蘑菇孢子', 356, 432, 60), line('PP: 0 / 24', 356, 452, 80)]}
+        a = self.leppa_host([party, moves] + [moves] * 6 + [{'text': '', 'lines': []}] * 5)
+        a.ensure = Mock(return_value=(0, 0)); a.move_event = Mock()
+        with self.assertRaisesRegex(RuntimeError, '使用'):
+            a.use_leppa(0)
 
     def test_no_berry_window_stops_without_esc_on_the_map(self):
         plain = {'text': '47号道路（Route47）', 'lines': []}

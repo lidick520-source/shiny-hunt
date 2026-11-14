@@ -646,32 +646,51 @@ class App:
    self.wait(.5)
   return None,im,data
  def use_leppa(self,pp):
-  """On the map after a catch: hotbar 9 (苹野果) -> 图图犬 -> 蘑菇孢子. Every step is checked by its words; nothing is
-  clicked blind. Screenshots of every step go to diagnostics/leppa."""
-  self.mode='用苹野果';self.say(f'  蘑菇孢子只剩 {pp} PP：按9用苹野果补充')
-  def fail(step,im,data):
-   self.diagnostic(im,data,'leppa');self.leppa_snapshot(im,9)
-   for _ in range(2):   # close whatever the berry opened, never on a plain map
-    if not self.find_text(r'图图犬|孢子|苹野果|使用',tries=1)[0]:break
-    self.press(ESC_KEY);self.wait(1)
-   raise RuntimeError(f'抓百变：用苹野果失败（{step}），已停止，截图在 diagnostics/leppa；可能苹野果用完了，补充后再开始')
-  self.press(LEPPA_KEY);self.wait(1)
-  who,im,data=self.find_text(r'图图犬');self.leppa_snapshot(im,1)
-  if not who:fail('按9后没出现选宝可梦的画面',im,data)
-  self.click((int(who['x'])-30,int(who['y'])-6,int(who['w'])+60,int(who['h'])+12));self.wait(1)
-  move,im,data=self.find_text(r'蘑菇|孢子');self.leppa_snapshot(im,2)
-  if not move:fail('选了图图犬后没出现技能列表',im,data)
-  self.click((int(move['x'])-30,int(move['y'])-6,int(move['w'])+60,int(move['h'])+12));self.wait(1.5)
-  done,im,data=self.find_text(r'恢复|回复|PP',tries=4);self.leppa_snapshot(im,3)
-  for _ in range(3):   # close the message / windows until the plain map is back
-   im=self.capture();data=self.check_verification(im)
-   if not re.search(r'图图犬|孢子|苹野果|恢复|回复',cn_norm(data['text'])):break
-   if dialog_bubble_white(im)>DIALOG_WHITE or re.search(r'恢复|回复',cn_norm(data['text'])):self.press(0x20)
-   else:self.press(ESC_KEY)
-   self.wait(1)
-  else:fail('用完后窗口关不掉',im,data)
-  self.leppa_snapshot(im,4);self.spore_pp=min(24,pp+10);self.mode='刷怪'
-  self.say(f'  苹野果用好了{"" if done else "（没看到恢复提示，下次开技能菜单会读到真实PP）"}，继续走')
+  """On the map after a catch, fill 蘑菇孢子 up with 苹野果 (+10 each), one berry at a time until full (user 19:10).
+  Real screens 19:09: hotbar 9 -> 「对哪只宝可梦使用?」 (图图犬'普 first) -> 「回复哪个技能?」 (蘑菇孢子 / PP: 0 / 24)
+  -> a confirm box with 「使用」/「取消」 - the berry is used only after 「使用」 (19:01-19:09 it was cancelled: PP never rose).
+  Every step is checked by its words; screenshots go to diagnostics/leppa."""
+  self.mode='用苹野果';self.say(f'  蘑菇孢子只剩 {pp} PP：用苹野果补满');used=0;step=[0]
+  def snap(im):step[0]+=1;self.leppa_snapshot(im,step[0])
+  def box(l):return (int(l['x'])-30,int(l['y'])-6,int(l['w'])+60,int(l['h'])+12)
+  def windows(text):return re.search(r'对哪只|回复哪个|图图犬|孢子|苹野果|恢复|回复|使用|取消',text)
+  def close():
+   for _ in range(4):   # close messages and windows until the plain map is back; never ESC on the map
+    im=self.capture();data=self.check_verification(im);text=cn_norm(data['text'])
+    if not windows(text):return True
+    if dialog_bubble_white(im)>DIALOG_WHITE or re.search(r'恢复了|回复了',text):self.press(0x20)
+    else:self.press(ESC_KEY)
+    self.wait(1)
+   return False
+  def fail(why,im,data):
+   self.diagnostic(im,data,'leppa');snap(im);close()
+   raise RuntimeError(f'抓百变：用苹野果失败（{why}），已停止，截图在 diagnostics/leppa；可能苹野果用完了，补充后再开始')
+  for _ in range(4):
+   self.press(LEPPA_KEY);self.wait(1)
+   who,im,data=self.find_text(r'图图犬');snap(im)
+   if not who:fail('按9后没出现「对哪只宝可梦使用」',im,data)
+   self.click(box(who));self.wait(1)
+   move,im,data=self.find_text(r'蘑菇|孢子');snap(im)
+   if not move:fail('选了图图犬后没出现技能列表',im,data)
+   cur=None;top=24
+   for l in data.get('lines',[]):   # 「PP: 0 / 24」 right under the name, inside the same button
+    m=re.search(r'PP:?(\d+)/(\d+)',cn_norm(l['text']),re.I)
+    if m and abs(l['x']-move['x'])<=40 and 0<l['y']-move['y']<=40:cur,top=int(m.group(1)),int(m.group(2))
+   if cur is not None and cur>=top:
+    if not close():fail('技能列表关不掉',im,data)
+    break
+   self.click(box(move));self.wait(1)
+   origin=self.ensure();self.move_event((origin[0]+150,origin[1]+700));self.wait(.6)   # the move's tooltip covers the box
+   use,im,data=self.find_text(r'^使用$');snap(im)
+   if not use:fail('选了蘑菇孢子后没出现「使用」按钮',im,data)
+   self.click(box(use));self.wait(1.5);used+=1
+   im=self.capture();snap(im)
+   if not close():fail('用完后窗口关不掉',im,self.check_verification(im))
+   if cur is not None:
+    pp=min(top,cur+10);self.say(f'  用了第{used}个苹野果：蘑菇孢子 {cur} → {pp}/{top} PP')
+    if pp>=top:break
+  self.spore_pp=pp;self.mode='刷怪'
+  self.say(f'  苹野果用了 {used} 个，蘑菇孢子补满了，继续走' if used else '  蘑菇孢子本来就是满的，继续走')
  def caught_snapshot(self,im,label):
   try:
    folder=BASE/'diagnostics'/'ditto-caught';folder.mkdir(parents=True,exist_ok=True)
