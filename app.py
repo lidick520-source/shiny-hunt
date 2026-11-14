@@ -96,6 +96,12 @@ DITTO_ASLEEP=re.compile(r'睡着|呼呼大睡|睡觉|睡眠')
 DITTO_MISSED=re.compile(r'没有效果|但是失败|没有命中|没有打中|避开|不会有任何效果')
 DITTO_NO_PP=re.compile(r'没有剩余|PP不足|PP用完|没有PP')
 DITTO_CAUGHT=re.compile(r'抓到|捕获|收服|捕捉成功|图鉴|送到|送往')
+ESC_KEY=0x1B
+# User 2026-11-14 16:40: after a catch the game opens the Pokemon info page; ESC closes it.
+INFO_WORDS=('性格','特性','持有物','身高','体重','个体','努力','训练家','亲密','能力','招式','分类','ID')
+def info_page(data):
+ text=cn_norm(data.get('text',''))
+ return sum(w in text for w in INFO_WORDS)>=2 and not escape_region(data)
 DITTO_PLATES=(120,55,900,215)   # x0,y0,x1,y1: wild name plates (single 143, horde 97/150); our own plate is at y 337
 def ditto_plate(data):
  """True only for ONE wild 百变怪: its name plate says 百变 and no other wild plate is there.
@@ -523,12 +529,16 @@ class App:
   """After a move or a ball: ('menu', 逃跑 rect) when the battle menu is back, ('map', None) when the battle is over,
   ('ignored', rect) when the menu never went away (input not taken). stale=(pattern, rect): the move button that
   was clicked; still there 5 s later = the click was not taken. Also returns every OCR line of the turn."""
-  started=time.monotonic();texts=[];gone=False;map_frames=0;last_log=started;stale_since=None
+  started=time.monotonic();texts=[];gone=False;map_frames=0;last_log=started;stale_since=None;caught_at=None
   while True:
    im=self.capture();data=self.check_verification(im);button=escape_region(data);now=time.monotonic()
    texts.extend(cn_norm(l['text']) for l in data.get('lines',[]))
    if not button:gone=True
    if button and gone and now-started>=1.5:return 'menu',button,texts
+   if info_page(data):return 'page',None,texts
+   if not button and any(DITTO_CAUGHT.search(t) for t in texts):
+    caught_at=caught_at or now
+    if now-caught_at>=4:return 'page',None,texts   # caught, the battle window is closing / a page opens
    if button and not gone and now-started>=6:return 'ignored',button,texts
    if stale and not button and any(inside(l,stale[1]) and re.search(stale[0],cn_norm(l['text'])) for l in data.get('lines',[])):
     stale_since=stale_since or now
@@ -562,9 +572,11 @@ class App:
     continue
    retried=False
    if any(DITTO_NO_PP.search(t) for t in texts):raise RuntimeError(f'抓百变：游戏提示PP不够了（{what}），已停止；回中心补满 PP 再开始')
-   if result=='map':
+   if result in ('map','page'):
     if what=='扔精灵球' or any(DITTO_CAUGHT.search(t) for t in texts):
-     self.ditto_caught=getattr(self,'ditto_caught',0)+1;self.say(f'抓到百变怪了！这次开始后共抓到 {self.ditto_caught} 只，继续走')
+     self.ditto_caught=getattr(self,'ditto_caught',0)+1;self.say(f'抓到百变怪了！这次开始后共抓到 {self.ditto_caught} 只')
+     self.close_info_page()
+     self.say('  抓百变：已回到地图，继续走')
     else:self.say(f'  抓百变：{what}之后战斗就结束了，没看到捕获提示，继续走')
     self.mode='刷怪';return
    escape=button
@@ -581,6 +593,35 @@ class App:
     balls+=1;self.say(f'  抓百变：第{thrown}个球没抓住')
    if any(re.search(r'醒',t) for t in ditto_lines):asleep=False;self.say('  抓百变：百变怪醒了，再用蘑菇孢子')
   raise RuntimeError(f'抓百变：出手{DITTO_MAX_ACTIONS}次还没抓到，已停止，请手动看一下')
+ def caught_snapshot(self,im,label):
+  try:
+   folder=BASE/'diagnostics'/'ditto-caught';folder.mkdir(parents=True,exist_ok=True)
+   im.save(folder/f'{time.strftime("%Y%m%d-%H%M%S")}-{label}.png',compress_level=1)
+  except Exception:pass
+ def close_info_page(self,limit=12):
+  """After a catch: the info page opens (user 2026-11-14); ESC closes it. ESC only when the page is recognised by its
+  words, or after 6 s when the screen is neither the map nor the battle (something unrecognised covers it).
+  Done when the plain map is back for 2 frames, at least 2.5 s after the catch."""
+  started=time.monotonic();presses=0;map_frames=0;last_esc=0
+  while True:
+   im=self.capture();data=self.check_verification(im);now=time.monotonic()
+   page=info_page(data)
+   plain=not page and not escape_region(data) and self.walk_map(im) and not WALK_STILL_BATTLE.search(data['text'])
+   map_frames=map_frames+1 if plain else 0
+   if map_frames>=2 and now-started>=2.5:
+    if presses:self.caught_snapshot(im,'closed')
+    return
+   # The page shows 「Lv.」 too, so a battle is told by its menu and the catch messages, not by Lv.
+   cover=not plain and not escape_region(data) and not DITTO_CAUGHT.search(cn_norm(data['text'])) and now-started>=6
+   if (page or cover) and now-last_esc>=1.5:
+    if presses>=3:
+     self.diagnostic(im,data,'ditto-page');raise RuntimeError('抓百变：抓到后按了3次ESC画面还没回到地图，已停止，截图在 diagnostics/ditto-caught')
+    self.caught_snapshot(im,'page' if page else 'cover');self.press(ESC_KEY);presses+=1;last_esc=now;map_frames=0
+    self.say(f'  抓百变：{"精灵信息页" if page else "抓到后画面被挡住（没认出是什么）"}，按ESC关闭（第{presses}次）')
+   if now-started>limit+3*presses:
+    self.diagnostic(im,data,'ditto-page');self.caught_snapshot(im,'stuck')
+    raise RuntimeError('抓百变：抓到后一直没回到地图，已停止，截图在 diagnostics/ditto-caught')
+   self.wait(.25)
  def current_spot(self):
   return getattr(self,'spot',None) or spots.get(spots.DEFAULT_SPOT)
  def recover_pp(self):
@@ -911,6 +952,8 @@ class App:
        if re.search(r'香水用|使用下一个',data['text']):
         # 「香水用完了. 使用下一个?」 (PokeLoop template 1766587015): answer 是 with space, keep walking.
         self.say('  香水用完了，按空格用下一瓶');self.press(0x20);self.wait(1.5);walk_since=time.monotonic();continue
+       if getattr(self,'ditto_catch',False) and info_page(data):
+        self.say('  精灵信息页还开着，按ESC关闭');self.caught_snapshot(im,'late-page');self.press(ESC_KEY);self.wait(1.2);walk_since=time.monotonic();continue
        ui=self.blocking_ui(im,data)
        if ui and self.lure_prompt(data,ui):walk_since=time.monotonic();continue
        if ui:raise RuntimeError(f'刷怪点被「{screen_state.LABELS[ui]}」挡住了，没有继续走')

@@ -83,7 +83,7 @@ class DittoTests(unittest.TestCase):
 
     def catch_host(self, turns):
         a = self.host(); a.ditto_move = Mock(side_effect=lambda slot, esc: ('move', slot))
-        a.ditto_turn = Mock(side_effect=turns)
+        a.ditto_turn = Mock(side_effect=turns); a.close_info_page = Mock()
         return a
 
     def actions(self, a):
@@ -138,6 +138,59 @@ class DittoTests(unittest.TestCase):
     def test_catch_errors_are_not_auto_recovered(self):
         a = self.host(); a.recoveries = []; a.protection = None
         self.assertFalse(a.recoverable(RuntimeError('抓百变：蘑菇孢子 的 PP 用完了')))
+
+    def test_catch_closes_the_info_page(self):
+        a = self.catch_host([('menu', ESCAPE, []), ('menu', ESCAPE, []), ('page', None, ['抓到了！', '收服到百变怪了！'])])
+        a.catch_ditto(ESCAPE)
+        a.close_info_page.assert_called_once(); self.assertEqual(a.ditto_caught, 1)
+
+    def page_host(self, frames, maps):
+        a = self.host(); a._walk_base = 100
+        a.check_verification = Mock(side_effect=frames); a.walk_map = Mock(side_effect=maps)
+        a.caught_snapshot = Mock()
+        return a
+
+    def run_page(self, a):
+        t = [0.0]
+        def tick():
+            t[0] += 1.0; return t[0]
+        orig = app.time.monotonic; app.time.monotonic = tick
+        try: a.close_info_page()
+        finally: app.time.monotonic = orig
+
+    def test_info_page_gets_esc_then_map(self):
+        page = {'text': "百变怪'普 Lv.35 性格 胆小 特性 变身者 持有物 无", 'lines': []}
+        plain = {'text': '47号道路（Route47）道路・频道11', 'lines': []}
+        a = self.page_host([page, plain, plain, plain], [False, True, True, True])
+        self.run_page(a)
+        self.assertEqual([c[0][0] for c in a.press.call_args_list], [app.ESC_KEY])
+
+    def test_no_page_no_esc(self):
+        plain = {'text': '47号道路（Route47）道路・频道11', 'lines': []}
+        a = self.page_host([plain] * 5, [True] * 5)
+        self.run_page(a)
+        a.press.assert_not_called()                                         # ESC on the map would open the menu
+
+    def test_battle_text_never_gets_esc(self):
+        msg = {'text': "抓到了！收服到百变怪'普了！Lv.35", 'lines': []}
+        plain = {'text': '47号道路', 'lines': []}
+        a = self.page_host([msg] * 4 + [plain] * 3, [False] * 4 + [True] * 3)
+        self.run_page(a)
+        a.press.assert_not_called()
+
+    def test_unknown_cover_after_six_seconds_gets_esc(self):
+        cover = {'text': "百变怪'普 Lv.35", 'lines': []}
+        plain = {'text': '47号道路', 'lines': []}
+        a = self.page_host([cover] * 7 + [plain] * 3, [False] * 7 + [True] * 3)
+        self.run_page(a)
+        self.assertEqual(len(a.press.call_args_list), 1)
+
+    def test_page_that_never_closes_stops(self):
+        page = {'text': '性格 特性 持有物', 'lines': []}
+        a = self.page_host([page] * 60, [False] * 60)
+        with self.assertRaisesRegex(RuntimeError, 'ESC'):
+            self.run_page(a)
+        self.assertEqual(a.press.call_count, 3)
 
     def test_endless_battle_stops(self):
         a = self.catch_host([('menu', ESCAPE, ['但是失败了'])] * 40)
