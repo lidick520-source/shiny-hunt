@@ -118,12 +118,54 @@ class DittoTests(unittest.TestCase):
         a.catch_ditto(ESCAPE)
         self.assertEqual(self.actions(a)[0], [1, 3])                        # a 醒 in the spore turn is ignored
 
-    def test_low_hp_lead_stops(self):
-        hp = {'lines': [line('50 / 234', 700, 340)]}
-        a = self.catch_host([('menu', ESCAPE, [], hp)])
-        with self.assertRaisesRegex(RuntimeError, '50/234'):
+    def test_low_hp_does_not_stop_only_fainted(self):
+        # 17:54 stopped at 29/234 for nothing: 点到为止 always leaves 1 HP.
+        a = self.catch_host([('menu', ESCAPE, [], {'lines': [line('29 / 234', 700, 340)]}), ('menu', ESCAPE, [], {}), ('map', None, [], {})])
+        a.catch_ditto(ESCAPE)
+        self.assertEqual(a.ditto_caught, 1)
+        a = self.catch_host([('menu', ESCAPE, [], {'lines': [line('0 / 234', 700, 340)]})])
+        with self.assertRaisesRegex(RuntimeError, '倒下'):
             a.catch_ditto(ESCAPE)
         self.assertEqual(app.lead_hp({'lines': [line('93 / 234', 700, 340)]}), (93, 234))
+
+    def test_low_spore_pp_after_a_catch_uses_leppa(self):
+        a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, [], {}), ('map', None, [], {})])
+        a.use_leppa = Mock()
+        def move(slot, esc):
+            if slot == 3: a.spore_pp = 3
+            return ('move', slot)
+        a.ditto_move = Mock(side_effect=move)
+        a.catch_ditto(ESCAPE)
+        a.use_leppa.assert_called_once_with(3)
+        a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, [], {}), ('map', None, [], {})])
+        a.use_leppa = Mock(); a.spore_pp = 12
+        a.catch_ditto(ESCAPE)
+        a.use_leppa.assert_not_called()
+
+    def leppa_host(self, frames):
+        a = self.host(); a.leppa_snapshot = Mock()
+        a.check_verification = Mock(side_effect=frames)
+        return a
+
+    def test_leppa_flow_clicks_lead_then_spore(self):
+        plain = {'text': '47号道路（Route47）', 'lines': []}
+        party = {'text': '图图犬', 'lines': [line("闪光图图犬'普", 420, 300, 100)]}
+        moves = {'text': '蘑菇孢子 PP 3/24', 'lines': [line('蘑菇孢子', 430, 360, 70)]}
+        done = {'text': '蘑菇孢子的PP恢复了', 'lines': [line('蘑菇孢子的PP恢复了', 300, 600, 200)]}
+        a = self.leppa_host([party, moves, done, done, plain])
+        a.use_leppa(3)
+        self.assertEqual([c[0][0] for c in a.press.call_args_list], [app.LEPPA_KEY, 0x20])
+        clicks = [c[0][0] for c in a.click.call_args_list]
+        self.assertEqual(len(clicks), 2); self.assertEqual(clicks[0][1], 294); self.assertEqual(clicks[1][1], 354)
+        self.assertEqual(a.spore_pp, 13)
+
+    def test_no_berry_window_stops_without_esc_on_the_map(self):
+        plain = {'text': '47号道路（Route47）', 'lines': []}
+        a = self.leppa_host([plain] * 20)
+        with self.assertRaisesRegex(RuntimeError, '苹野果'):
+            a.use_leppa(2)
+        self.assertEqual([c[0][0] for c in a.press.call_args_list], [app.LEPPA_KEY])   # no ESC: it would open the menu
+        a.click.assert_not_called()
 
     def test_menu_back_after_a_catch_means_not_caught(self):
         a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, [], {}), ('page', None, [], {}),

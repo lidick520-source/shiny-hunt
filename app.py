@@ -91,6 +91,8 @@ WALK_STILL_BATTLE=re.compile(r'Lv\.?\s*\d+|派出了|使出了|逃跑|选择战�
 DITTO=re.compile(r'百变')
 DITTO_MOVES={1:('点到为止',r'点到'),3:('蘑菇孢子',r'蘑菇|孢子|包子')}
 BALL_KEY=0x33
+LEPPA_KEY=0x39          # 苹野果 on hotbar slot 9 (user 17:56; hotbar screenshot 16:57)
+LEPPA_AT=4              # after a catch, 蘑菇孢子 PP at or below this -> 苹野果 (+10 PP)
 DITTO_MAX_ACTIONS=20
 DITTO_ASLEEP=re.compile(r'睡着|睡得|呼呼大睡|睡觉|睡眠')   # 16:57 real: 「野生的百变怪'普睡得很香.」
 DITTO_MISSED=re.compile(r'没有效果|但是失败|没有命中|没有打中|避开|不会有任何效果')
@@ -541,6 +543,7 @@ class App:
    self.diagnostic(im,data,'ditto-moves');raise RuntimeError(f'抓百变：技能菜单里一个字都没读到，不敢乱点{name}，已停止，截图在 diagnostics/latest-screen.png')
   pp=move_pp(lines,target)
   if pp==0:raise RuntimeError(f'抓百变：{name} 的 PP 用完了，已停止；回中心补满 PP 再开始')
+  if slot==3 and pp is not None:self.spore_pp=pp-1   # what is left after this use
   self.diagnostic(im,data,'ditto-moves')
   self.click(target);self.say(f'  抓百变：{slot}号技能「{name}」（{how}{"" if pp is None else f"，剩 {pp} PP"}）')
   return target
@@ -601,11 +604,15 @@ class App:
      if back=='battle':   # the battle menu came back: that ball did not catch it after all
       self.say('  抓百变：战斗菜单又出现了，这个球其实没抓住，继续');escape=button;balls+=1;continue
      self.ditto_caught=getattr(self,'ditto_caught',0)+1;self.say(f'抓到百变怪了！这次开始后共抓到 {self.ditto_caught} 只，继续走')
+     pp=getattr(self,'spore_pp',None)
+     if pp is not None and pp<=LEPPA_AT:self.use_leppa(pp)
     else:self.say(f'  抓百变：{what}之后战斗就结束了，没看到捕获提示，继续走')
     self.mode='刷怪';return
    escape=button
+   # No HP stop (17:54 stopped at 29/234 for nothing): a transformed Ditto only has our lead's moves, and the only
+   # damaging one, 点到为止, always leaves at least 1 HP. Only a fainted lead (0 HP) stops.
    hp=lead_hp(data)
-   if hp and hp[0]*4<hp[1]:raise RuntimeError(f'抓百变：图图犬只剩 {hp[0]}/{hp[1]} 血，已停止；回中心补血再开始')
+   if hp and hp[0]==0:raise RuntimeError('抓百变：图图犬倒下了，已停止；回中心恢复再开始')
    ditto_lines=[t for t in texts if DITTO.search(t)]
    ours_asleep=any(DITTO_ASLEEP.search(t) and '图图' in t and not DITTO.search(t) and '使出' not in t for t in texts)   # our lead 图图犬
    if what=='点到为止':swiped=True
@@ -623,6 +630,48 @@ class App:
      quiet+=1
      if quiet>=2:asleep=False;self.say('  抓百变：连续两个球都没看到百变怪在睡，可能醒了，再用蘑菇孢子')
   raise RuntimeError(f'抓百变：出手{DITTO_MAX_ACTIONS}次还没抓到，已停止，请手动看一下')
+ def leppa_snapshot(self,im,step):
+  try:
+   folder=BASE/'diagnostics'/'leppa';folder.mkdir(parents=True,exist_ok=True)
+   if step==1:
+    for old in folder.glob('*.png'):old.unlink()
+   im.save(folder/f'{step:02d}-{time.strftime("%H%M%S")}.png',compress_level=1)
+  except Exception:pass
+ def find_text(self,pattern,tries=6):
+  # Look for an OCR line matching pattern for ~3 s; returns (line, im, data) or (None, im, data).
+  for _ in range(tries):
+   im=self.capture();data=self.check_verification(im)
+   for l in data.get('lines',[]):
+    if re.search(pattern,cn_norm(l['text'])):return l,im,data
+   self.wait(.5)
+  return None,im,data
+ def use_leppa(self,pp):
+  """On the map after a catch: hotbar 9 (苹野果) -> 图图犬 -> 蘑菇孢子. Every step is checked by its words; nothing is
+  clicked blind. Screenshots of every step go to diagnostics/leppa."""
+  self.mode='用苹野果';self.say(f'  蘑菇孢子只剩 {pp} PP：按9用苹野果补充')
+  def fail(step,im,data):
+   self.diagnostic(im,data,'leppa');self.leppa_snapshot(im,9)
+   for _ in range(2):   # close whatever the berry opened, never on a plain map
+    if not self.find_text(r'图图犬|孢子|苹野果|使用',tries=1)[0]:break
+    self.press(ESC_KEY);self.wait(1)
+   raise RuntimeError(f'抓百变：用苹野果失败（{step}），已停止，截图在 diagnostics/leppa；可能苹野果用完了，补充后再开始')
+  self.press(LEPPA_KEY);self.wait(1)
+  who,im,data=self.find_text(r'图图犬');self.leppa_snapshot(im,1)
+  if not who:fail('按9后没出现选宝可梦的画面',im,data)
+  self.click((int(who['x'])-30,int(who['y'])-6,int(who['w'])+60,int(who['h'])+12));self.wait(1)
+  move,im,data=self.find_text(r'蘑菇|孢子');self.leppa_snapshot(im,2)
+  if not move:fail('选了图图犬后没出现技能列表',im,data)
+  self.click((int(move['x'])-30,int(move['y'])-6,int(move['w'])+60,int(move['h'])+12));self.wait(1.5)
+  done,im,data=self.find_text(r'恢复|回复|PP',tries=4);self.leppa_snapshot(im,3)
+  for _ in range(3):   # close the message / windows until the plain map is back
+   im=self.capture();data=self.check_verification(im)
+   if not re.search(r'图图犬|孢子|苹野果|恢复|回复',cn_norm(data['text'])):break
+   if dialog_bubble_white(im)>DIALOG_WHITE or re.search(r'恢复|回复',cn_norm(data['text'])):self.press(0x20)
+   else:self.press(ESC_KEY)
+   self.wait(1)
+  else:fail('用完后窗口关不掉',im,data)
+  self.leppa_snapshot(im,4);self.spore_pp=min(24,pp+10);self.mode='刷怪'
+  self.say(f'  苹野果用好了{"" if done else "（没看到恢复提示，下次开技能菜单会读到真实PP）"}，继续走')
  def caught_snapshot(self,im,label):
   try:
    folder=BASE/'diagnostics'/'ditto-caught';folder.mkdir(parents=True,exist_ok=True)
