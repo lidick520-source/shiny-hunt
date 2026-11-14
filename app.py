@@ -85,12 +85,40 @@ WALK_KEYS={'h':(0x41,0x44),'v':(0x57,0x53)}   # left/right or up/down
 WALK_NO_ENCOUNTER=90                          # seconds of walking without a battle -> not in the grass
 WALK_ESCAPE_RETRIES=6
 WALK_STILL_BATTLE=re.compile(r'Lv\.?\s*\d+|派出了|使出了|逃跑|选择战斗技能')                         # a single wild Pokemon can block the escape a few times
+# 抓百变 (user 2026-11-14, 城都47号道路, lead 图图犬): a wild 百变怪 in 走路单遇 is caught, not escaped:
+# move 1 点到为止 once, move 3 蘑菇孢子 until it sleeps, then hotbar key 3 (精灵球) until caught.
+# OCR has read the name as 百变怪 and 百变任 (2026-11-13 沙漠的地下道).
+DITTO=re.compile(r'百变')
+DITTO_MOVES={1:('点到为止',r'点到'),3:('蘑菇孢子',r'蘑菇|孢子|包子')}
+BALL_KEY=0x33
+DITTO_MAX_ACTIONS=20
+DITTO_ASLEEP=re.compile(r'睡着|呼呼大睡|睡觉|睡眠')
+DITTO_MISSED=re.compile(r'没有效果|但是失败|没有命中|没有打中|避开|不会有任何效果')
+DITTO_NO_PP=re.compile(r'没有剩余|PP不足|PP用完|没有PP')
+DITTO_CAUGHT=re.compile(r'抓到|捕获|收服|捕捉成功|图鉴|送到|送往')
+def battle_menu_rects(escape):
+ """Click areas of the 2x2 battle menu from the OCR rect of 逃跑 (bottom-right button). The move menu uses the
+ same grid: move 1 = 战斗's place, 2 = 背包, 3 = 宝可梦, 4 = 逃跑. Measured on sim/frames/newui_battle_driftveil.png:
+ 战斗 (245,497)  背包 (455,497) / 宝可梦 (245,551)  逃跑 (455,551): columns 210 px, rows 54 px apart."""
+ x,y,w,h=escape
+ def at(dx,dy):return escape_button_area((x+dx,y+dy,w,h))
+ return {1:at(-210,-54),2:at(0,-54),3:at(-210,0),4:at(0,0)}
+def inside(line,rect):
+ cx=line['x']+line['w']/2;cy=line['y']+line['h']/2;x,y,w,h=rect
+ return x<=cx<=x+w and y-6<=cy<=y+h+6
+def move_pp(lines,rect):
+ """Remaining PP of the move button at rect (「PP 12/24」 or 「12/24」 on the button), None when unreadable."""
+ for l in lines:
+  if not inside(l,rect):continue
+  m=re.search(r'(\d+)\s*/\s*(\d+)',cn_norm(l['text']))
+  if m and int(m.group(2))<=64:return int(m.group(1))
+ return None
 # User confirmed 2026-10-18 21:16: clicking the same icon again closes its popup menu (book and pokeball).
 # Never auto-recover from these: protection stops, user stops, setup problems.
 def channel_interval():
  # User 2026-10-18: change channel at a random moment, every 40-50 minutes (not a fixed 50).
  return random.randint(2400,3000)
-NO_RECOVERY=('香水没开','关服','闪光','验证','手动停止','F8','已关闭','缺少屏幕录制','尚未授予','窗口为','原生输入','六次遭遇完成','轻飘飘全自动','未确认是','路线测试','游戏已关闭','切不回前台','没找到 PokeMMO','自动恢复')
+NO_RECOVERY=('抓百变','香水没开','关服','闪光','验证','手动停止','F8','已关闭','缺少屏幕录制','尚未授予','窗口为','原生输入','六次遭遇完成','轻飘飘全自动','未确认是','路线测试','游戏已关闭','切不回前台','没找到 PokeMMO','自动恢复')
 def CHANNEL_ROW(n):return (446,338+27*(n-1)-9,132,18)   # 频道1 y=338, step 27 (real screenshots)
 CHANNEL_WINDOW_BOX=(424,322,600,488)   # checkbox + 变更/取消, cut from the real screenshot (assets/channel_window.png)
 # 2026-10-23 琉璃市: right after a change the window shows a 「下次切换: N秒后」 row on top and everything
@@ -460,6 +488,89 @@ class App:
    if not self.walk_map(self.capture()):return True   # the battle began between two steps
    if self.walk_step():return True
   return False
+ def ditto_wanted(self,*texts):
+  return self.walking() and bool(getattr(self,'ditto_catch',False)) and any(DITTO.search(cn_norm(t)) for t in texts)
+ def ditto_move(self,slot,escape):
+  """战斗 -> move `slot`. Returns the clicked area (to click again if the game ignored it)."""
+  name,pattern=DITTO_MOVES[slot];rects=battle_menu_rects(escape)
+  for attempt in range(2):
+   self.click(rects[1]);self.wait(.9)
+   im=self.capture();data=self.check_verification(im)
+   if not escape_region(data):break
+  else:raise RuntimeError('抓百变：点了两次「战斗」技能菜单都没打开，已停止')
+  lines=[l for l in data.get('lines',[]) if 440<=l['y']<=640]
+  hit=next((l for l in lines if re.search(pattern,cn_norm(l['text']))),None)
+  if hit:target=escape_button_area((int(hit['x'])-10,int(hit['y'])-6,int(hit['w'])+20,int(hit['h'])+12));how='按技能名'
+  elif lines:target=rects[slot];how=f'技能名没读到，按{slot}号位'
+  else:
+   self.diagnostic(im,data,'ditto-moves');raise RuntimeError(f'抓百变：技能菜单里一个字都没读到，不敢乱点{name}，已停止，截图在 diagnostics/latest-screen.png')
+  pp=move_pp(lines,target)
+  if pp==0:raise RuntimeError(f'抓百变：{name} 的 PP 用完了，已停止；回中心补满 PP 再开始')
+  self.diagnostic(im,data,'ditto-moves')
+  self.click(target);self.say(f'  抓百变：{slot}号技能「{name}」（{how}{"" if pp is None else f"，剩 {pp} PP"}）')
+  return target
+ def ditto_turn(self,what,timeout=60,stale=None):
+  """After a move or a ball: ('menu', 逃跑 rect) when the battle menu is back, ('map', None) when the battle is over,
+  ('ignored', rect) when the menu never went away (input not taken). stale=(pattern, rect): the move button that
+  was clicked; still there 5 s later = the click was not taken. Also returns every OCR line of the turn."""
+  started=time.monotonic();texts=[];gone=False;map_frames=0;last_log=started;stale_since=None
+  while True:
+   im=self.capture();data=self.check_verification(im);button=escape_region(data);now=time.monotonic()
+   texts.extend(cn_norm(l['text']) for l in data.get('lines',[]))
+   if not button:gone=True
+   if button and gone and now-started>=1.5:return 'menu',button,texts
+   if button and not gone and now-started>=6:return 'ignored',button,texts
+   if stale and not button and any(inside(l,stale[1]) and re.search(stale[0],cn_norm(l['text'])) for l in data.get('lines',[])):
+    stale_since=stale_since or now
+    if now-stale_since>=5:return 'ignored',None,texts
+   else:stale_since=None
+   on_map=not button and self.walk_map(im) and not WALK_STILL_BATTLE.search(data['text'])
+   map_frames=map_frames+1 if on_map else 0
+   if map_frames>=2 and now-started>=2.5:return 'map',None,texts
+   if self.blocking_ui(im,data)=='yes_no':
+    self.diagnostic(im,data,'ditto-yes-no')
+    raise RuntimeError(f'抓百变：{what}之后出现了是/否选择框，不知道该选哪个，已停止，截图在 diagnostics/latest-screen.png')
+   if now-started>timeout:
+    self.diagnostic(im,data,'ditto-timeout');raise RuntimeError(f'抓百变：{what}之后等了{timeout}秒战斗菜单没回来，已停止，截图在 diagnostics/latest-screen.png')
+   if now-last_log>=5:last_log=now;self.say(f'  抓百变：{what}，等这一回合结束；当前OCR：{data["text"][:120]}')
+   self.wait(.15)
+ def catch_ditto(self,escape):
+  self.mode='抓百变';self.say('是百变怪：不逃跑，开始抓（1号技能点到为止 → 3号技能蘑菇孢子 → 睡着后按3扔球）')
+  swiped=asleep=False;balls=0;retried=False;target=None;what=''
+  for action in range(DITTO_MAX_ACTIONS+1):
+   if not retried:
+    if action==DITTO_MAX_ACTIONS:raise RuntimeError(f'抓百变：出手{DITTO_MAX_ACTIONS}次还没抓到，已停止，请手动看一下')
+    if not swiped:what='点到为止';target=self.ditto_move(1,escape)
+    elif not asleep or balls>=3:what='蘑菇孢子';target=self.ditto_move(3,escape)   # 3 balls without a catch: sleep may be over
+    else:what='扔精灵球';target=None;self.press(BALL_KEY);self.say(f'  抓百变：按3扔精灵球（第{balls+1}个）')
+   result,button,texts=self.ditto_turn(what,stale=None if target is None else (DITTO_MOVES[1 if what=='点到为止' else 3][1],target))
+   if result=='ignored':
+    if retried:raise RuntimeError('抓百变：按3两次都没扔出球，已停止；检查快捷键3是不是精灵球、球还有没有' if target is None else f'抓百变：点了两次「{what}」游戏都没反应，已停止')
+    retried=True;self.say(f'  抓百变：{what}游戏没反应，再来一次')
+    if target is None:self.press(BALL_KEY)
+    else:self.click(target)
+    continue
+   retried=False
+   if any(DITTO_NO_PP.search(t) for t in texts):raise RuntimeError(f'抓百变：游戏提示PP不够了（{what}），已停止；回中心补满 PP 再开始')
+   if result=='map':
+    if what=='扔精灵球' or any(DITTO_CAUGHT.search(t) for t in texts):
+     self.ditto_caught=getattr(self,'ditto_caught',0)+1;self.say(f'抓到百变怪了！这次开始后共抓到 {self.ditto_caught} 只，继续走')
+    else:self.say(f'  抓百变：{what}之后战斗就结束了，没看到捕获提示，继续走')
+    self.mode='刷怪';return
+   escape=button
+   ditto_lines=[t for t in texts if DITTO.search(t)]
+   if what=='点到为止':swiped=True
+   elif what=='蘑菇孢子':
+    ours_asleep=any(re.search(r'呼呼大睡',t) and not DITTO.search(t) for t in texts)   # our lead slept: no move
+    if any(DITTO_ASLEEP.search(t) for t in ditto_lines):asleep=True
+    elif any(DITTO_MISSED.search(t) for t in texts) or ours_asleep:asleep=False
+    else:asleep=True   # 蘑菇孢子 always hits; the message is often missed by OCR
+    if asleep:balls=0
+    self.say('  抓百变：百变怪睡着了，下一步扔球' if asleep else '  抓百变：蘑菇孢子没成功，再来一次')
+   else:
+    balls+=1;self.say(f'  抓百变：第{balls}个球没抓住')
+   if any(re.search(r'醒',t) for t in ditto_lines):asleep=False;self.say('  抓百变：百变怪醒了，再用蘑菇孢子')
+  raise RuntimeError(f'抓百变：出手{DITTO_MAX_ACTIONS}次还没抓到，已停止，请手动看一下')
  def current_spot(self):
   return getattr(self,'spot',None) or spots.get(spots.DEFAULT_SPOT)
  def recover_pp(self):
@@ -862,6 +973,11 @@ class App:
           # graphic remains unchanged. Require both image checks and reuse ONLY
           # the location recognized earlier in this very same encounter.
           self.say('点击前OCR漏读；前后两帧逃跑图像均匹配，使用本轮首次OCR确认的位置')
+         if self.ditto_wanted(data.get('text',''),latest.get('text','')):
+          # Shiny checks above are done; a 百变怪 is caught instead of escaped (抓百变 switch).
+          self.catch_ditto(button);rounds+=1;self.total_rounds+=1;lure_seen=False
+          if self.channel_run and self.elapsed>=self.next_switch:self.switch()
+          state='walk';walk_since=time.monotonic();deadline=time.monotonic()+45;continue
          area=escape_button_area(button);point=self.click(area);self.say(f'已点击逃跑按钮内随机位置（{window_point(point,self.calibrated)}），等待游戏确认；双检至点击耗时{time.monotonic()-check_started:.3f}秒');state='return';deadline=time.monotonic()+35;stable=0;hud_frames=0;prev_return_im=None;last_escape_click=time.monotonic();escape_retries=0;escape_success=False;return_log=0
          self.diagnostic(fresh,{**latest,'original_flash_rule':guard},'escape-click-sent')
         else:self.say(f'等待原逃跑图像条件，当前相似度{guard["escape_image_score"]:.3f}')

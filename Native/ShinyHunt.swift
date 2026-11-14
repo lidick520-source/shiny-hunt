@@ -16,7 +16,7 @@ struct EngineState: Decodable {
     var restRemaining = 0, channelRemaining = 3000
     var auto = false, ppEnabled = false, channels = false
     var taskMode = "frillish", walkAxis = "h"
-    var lureCheck = false
+    var lureCheck = false, dittoCatch = false
     var notificationEnabled = false, notificationConfigured = false
     var gameFound = false, gameFrame: [Double] = [], gamePid = 0
     var protection = "", recoveriesTotal = 0, focusRegains = 0
@@ -36,7 +36,7 @@ struct LogEntry: Identifiable {
 
 final class NativeInputDriver {
     private let keyMap: [Int: CGKeyCode] = [
-        0x34: 21, 0x35: 23, 0x36: 22, 0x39: 25, 0x20: 49,
+        0x33: 20, 0x34: 21, 0x35: 23, 0x36: 22, 0x39: 25, 0x20: 49,
         0x57: 13, 0x41: 0, 0x53: 1, 0x44: 2,
         0x28: 125, 0x0D: 36, 0x24: 115
     ]
