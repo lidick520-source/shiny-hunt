@@ -145,11 +145,19 @@ class DittoTests(unittest.TestCase):
         moves, presses = self.actions(a)
         self.assertEqual(moves, [1, 3, 3]); self.assertEqual(len(presses), 2)
 
-    def test_three_failed_balls_spore_again(self):
-        a = self.catch_host([('menu', ESCAPE, [], {})] * 5 + [('map', None, [], {})])
+    def test_no_spore_while_it_still_sleeps(self):
+        # 17:23: three balls on a Ditto that said 「睡得很香」 each turn, then spore again - wasted its last PP.
+        sleeping = ["野生的百变怪'普睡得很香."]
+        a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, [], {})] + [('menu', ESCAPE, sleeping, {})] * 5 + [('map', None, [], {})])
         a.catch_ditto(ESCAPE)
         moves, presses = self.actions(a)
-        self.assertEqual(moves, [1, 3, 3]); self.assertEqual(len(presses), 3)
+        self.assertEqual(moves, [1, 3]); self.assertEqual(len(presses), 6)
+
+    def test_two_quiet_balls_then_spore(self):
+        a = self.catch_host([('menu', ESCAPE, [], {})] * 4 + [('map', None, [], {})])
+        a.catch_ditto(ESCAPE)
+        moves, presses = self.actions(a)
+        self.assertEqual(moves, [1, 3, 3]); self.assertEqual(len(presses), 2)
 
     def test_ball_key_ignored_twice_stops(self):
         a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, [], {}),
@@ -223,6 +231,7 @@ class DittoTests(unittest.TestCase):
         self.assertFalse(app.caught_text('糟糕！差一点就抓到了！'))
         self.assertFalse(app.caught_text('可惜！就快抓到了！'))
         self.assertFalse(app.caught_text('啊！看起来就要抓到了！'))
+        self.assertFalse(app.caught_text('嗨呀！都快抓到了！'))
         self.assertFalse(app.caught_text('抓到了！'))   # the first line of a catch; 收服 follows, failed balls say it too
         self.assertTrue(app.caught_text("收服到百变怪'普了！"))
         # 16:49: the ball failed, the menu came back - the catch loop must throw again, not call it caught

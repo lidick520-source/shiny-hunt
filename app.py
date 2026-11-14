@@ -96,7 +96,7 @@ DITTO_ASLEEP=re.compile(r'睡着|睡得|呼呼大睡|睡觉|睡眠')   # 16:57 r
 DITTO_MISSED=re.compile(r'没有效果|但是失败|没有命中|没有打中|避开|不会有任何效果')
 DITTO_NO_PP=re.compile(r'没有剩余|PP不足|PP用完|没有PP')
 DITTO_CAUGHT_WORDS=re.compile(r'收服|成功捕获|送到了?电脑|送往')
-DITTO_NEAR_MISS=re.compile(r'差一点|差点|就快|就要|看起来|可惜|糟糕|挣脱|逃出')
+DITTO_NEAR_MISS=re.compile(r'差一点|差点|就快|都快|就要|看起来|可惜|糟糕|嗨呀|挣脱|逃出')   # 17:22 「嗨呀！都快抓到了！」
 def caught_text(t):
  # Success: 「抓到了！」 then 「收服到百变怪'普了！」. Failed balls also say 抓到了 (16:49 「差一点就抓到了」,
  # 16:58 again), so only 收服 / sent to the PC count.
@@ -579,12 +579,12 @@ class App:
    self.wait(.15)
  def catch_ditto(self,escape):
   self.mode='抓百变';self.say('是百变怪：不逃跑，开始抓（1号技能点到为止 → 3号技能蘑菇孢子 → 睡着后按3扔球）')
-  swiped=asleep=False;balls=0;thrown=0;retried=False;target=None;what=''
+  swiped=asleep=False;balls=0;quiet=0;thrown=0;retried=False;target=None;what=''
   for action in range(DITTO_MAX_ACTIONS+1):
    if not retried:
     if action==DITTO_MAX_ACTIONS:raise RuntimeError(f'抓百变：出手{DITTO_MAX_ACTIONS}次还没抓到，已停止，请手动看一下')
     if not swiped:what='点到为止';target=self.ditto_move(1,escape)
-    elif not asleep or balls>=3:what='蘑菇孢子';target=self.ditto_move(3,escape)   # 3 balls without a catch: sleep may be over
+    elif not asleep:what='蘑菇孢子';target=self.ditto_move(3,escape)
     else:what='扔精灵球';target=None;thrown+=1;self.press(BALL_KEY);self.say(f'  抓百变：按3扔精灵球（这只第{thrown}个）')
    result,button,texts,data=self.ditto_turn(what,stale=None if target is None else (DITTO_MOVES[1 if what=='点到为止' else 3][1],target))
    if result=='ignored':
@@ -611,11 +611,17 @@ class App:
    if what=='点到为止':swiped=True
    elif what=='蘑菇孢子':
     # 蘑菇孢子 always hits; 「失败」 means it was already asleep. Only our own lead sleeping stops it.
-    asleep=not ours_asleep;balls=0 if asleep else balls
+    asleep=not ours_asleep;quiet=0
     self.say('  抓百变：百变怪睡着了，下一步扔球' if asleep else '  抓百变：图图犬自己睡着了，孢子没放出来，再来一次')
    else:
     balls+=1;self.say(f'  抓百变：第{thrown}个球没抓住')
+    # User 17:23: no 蘑菇孢子 while it still sleeps. A sleeping Ditto says 「睡得很香」 on its turn; spore again only
+    # when it woke up, or when two balls in a row showed no sign of sleep (the wake-up message missed by OCR).
     if any(re.search(r'醒',t) for t in ditto_lines):asleep=False;self.say('  抓百变：百变怪醒了，再用蘑菇孢子')
+    elif any(DITTO_ASLEEP.search(t) for t in ditto_lines):quiet=0;self.say('  抓百变：百变怪还在睡，继续扔球')
+    else:
+     quiet+=1
+     if quiet>=2:asleep=False;self.say('  抓百变：连续两个球都没看到百变怪在睡，可能醒了，再用蘑菇孢子')
   raise RuntimeError(f'抓百变：出手{DITTO_MAX_ACTIONS}次还没抓到，已停止，请手动看一下')
  def caught_snapshot(self,im,label):
   try:
