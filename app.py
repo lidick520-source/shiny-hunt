@@ -96,6 +96,16 @@ DITTO_ASLEEP=re.compile(r'睡着|呼呼大睡|睡觉|睡眠')
 DITTO_MISSED=re.compile(r'没有效果|但是失败|没有命中|没有打中|避开|不会有任何效果')
 DITTO_NO_PP=re.compile(r'没有剩余|PP不足|PP用完|没有PP')
 DITTO_CAUGHT=re.compile(r'抓到|捕获|收服|捕捉成功|图鉴|送到|送往')
+DITTO_PLATES=(120,55,900,215)   # x0,y0,x1,y1: wild name plates (single 143, horde 97/150); our own plate is at y 337
+def ditto_plate(data):
+ """True only for ONE wild 百变怪: its name plate says 百变 and no other wild plate is there.
+ 2026-11-14 16:29 47号道路: a 拉达 horde was taken for a Ditto - 百变 came from the open chat, not a plate."""
+ x0,y0,x1,y1=DITTO_PLATES
+ near=[l for l in data.get('lines',[]) if y0<=l['y']<=y1 and x0<=l['x']<=x1]
+ levels=[l for l in near if re.search(r'Lv\.?\d+',cn_norm(l['text']),re.I)]   # one 「Lv.」 per wild Pokemon
+ if len(levels)!=1:return False
+ # OCR may split 「百变怪'普」 and 「Lv. 35」 into two lines of the same row.
+ return any(DITTO.search(cn_norm(l['text'])) and abs(l['y']-levels[0]['y'])<=12 for l in near)
 def battle_menu_rects(escape):
  """Click areas of the 2x2 battle menu from the OCR rect of 逃跑 (bottom-right button). The move menu uses the
  same grid: move 1 = 战斗's place, 2 = 背包, 3 = 宝可梦, 4 = 逃跑. Measured on sim/frames/newui_battle_driftveil.png:
@@ -488,13 +498,13 @@ class App:
    if not self.walk_map(self.capture()):return True   # the battle began between two steps
    if self.walk_step():return True
   return False
- def ditto_wanted(self,*texts):
-  return self.walking() and bool(getattr(self,'ditto_catch',False)) and any(DITTO.search(cn_norm(t)) for t in texts)
+ def ditto_wanted(self,*frames):
+  return self.walking() and bool(getattr(self,'ditto_catch',False)) and any(ditto_plate(d) for d in frames)
  def ditto_move(self,slot,escape):
   """战斗 -> move `slot`. Returns the clicked area (to click again if the game ignored it)."""
   name,pattern=DITTO_MOVES[slot];rects=battle_menu_rects(escape)
   for attempt in range(2):
-   self.click(rects[1]);self.wait(.9)
+   self.click(rects[1]);self.wait(1.2)   # 16:32:03: a move clicked 0.9 s after 战斗 was not taken once
    im=self.capture();data=self.check_verification(im)
    if not escape_region(data):break
   else:raise RuntimeError('抓百变：点了两次「战斗」技能菜单都没打开，已停止')
@@ -536,13 +546,13 @@ class App:
    self.wait(.15)
  def catch_ditto(self,escape):
   self.mode='抓百变';self.say('是百变怪：不逃跑，开始抓（1号技能点到为止 → 3号技能蘑菇孢子 → 睡着后按3扔球）')
-  swiped=asleep=False;balls=0;retried=False;target=None;what=''
+  swiped=asleep=False;balls=0;thrown=0;retried=False;target=None;what=''
   for action in range(DITTO_MAX_ACTIONS+1):
    if not retried:
     if action==DITTO_MAX_ACTIONS:raise RuntimeError(f'抓百变：出手{DITTO_MAX_ACTIONS}次还没抓到，已停止，请手动看一下')
     if not swiped:what='点到为止';target=self.ditto_move(1,escape)
     elif not asleep or balls>=3:what='蘑菇孢子';target=self.ditto_move(3,escape)   # 3 balls without a catch: sleep may be over
-    else:what='扔精灵球';target=None;self.press(BALL_KEY);self.say(f'  抓百变：按3扔精灵球（第{balls+1}个）')
+    else:what='扔精灵球';target=None;thrown+=1;self.press(BALL_KEY);self.say(f'  抓百变：按3扔精灵球（这只第{thrown}个）')
    result,button,texts=self.ditto_turn(what,stale=None if target is None else (DITTO_MOVES[1 if what=='点到为止' else 3][1],target))
    if result=='ignored':
     if retried:raise RuntimeError('抓百变：按3两次都没扔出球，已停止；检查快捷键3是不是精灵球、球还有没有' if target is None else f'抓百变：点了两次「{what}」游戏都没反应，已停止')
@@ -568,7 +578,7 @@ class App:
     if asleep:balls=0
     self.say('  抓百变：百变怪睡着了，下一步扔球' if asleep else '  抓百变：蘑菇孢子没成功，再来一次')
    else:
-    balls+=1;self.say(f'  抓百变：第{balls}个球没抓住')
+    balls+=1;self.say(f'  抓百变：第{thrown}个球没抓住')
    if any(re.search(r'醒',t) for t in ditto_lines):asleep=False;self.say('  抓百变：百变怪醒了，再用蘑菇孢子')
   raise RuntimeError(f'抓百变：出手{DITTO_MAX_ACTIONS}次还没抓到，已停止，请手动看一下')
  def current_spot(self):
@@ -973,7 +983,7 @@ class App:
           # graphic remains unchanged. Require both image checks and reuse ONLY
           # the location recognized earlier in this very same encounter.
           self.say('点击前OCR漏读；前后两帧逃跑图像均匹配，使用本轮首次OCR确认的位置')
-         if self.ditto_wanted(data.get('text',''),latest.get('text','')):
+         if self.ditto_wanted(data,latest):
           # Shiny checks above are done; a 百变怪 is caught instead of escaped (抓百变 switch).
           self.catch_ditto(button);rounds+=1;self.total_rounds+=1;lure_seen=False
           if self.channel_run and self.elapsed>=self.next_switch:self.switch()

@@ -25,12 +25,26 @@ class DittoTests(unittest.TestCase):
         self.assertTrue(143 < centre[3][0] < 345 and 537 < centre[3][1] < 582)
         self.assertTrue(350 < centre[4][0] < 555 and 537 < centre[4][1] < 582)
 
+    @staticmethod
+    def frame(*lines):
+        return {'text': ''.join(l['text'] for l in lines), 'lines': list(lines)}
+
     def test_only_a_ditto_in_walk_mode_with_the_switch_on(self):
-        self.assertTrue(self.host().ditto_wanted('百变怪”普LV.50'))
-        self.assertTrue(self.host().ditto_wanted('', '百变任”普LV.52'))   # real OCR misread 2026-11-13
-        self.assertFalse(self.host().ditto_wanted('吼爆弹·普Lv.51'))
-        self.assertFalse(self.host(on=False).ditto_wanted('百变怪'))
-        self.assertFalse(self.host(mode='fixed').ditto_wanted('百变怪'))
+        ditto = self.frame(line("百变怪'普 Lv. 35", 178, 136, 115))
+        self.assertTrue(self.host().ditto_wanted(ditto))
+        self.assertTrue(self.host().ditto_wanted({}, self.frame(line('百变任”普LV.52', 178, 136, 115))))   # OCR misread 2026-11-13
+        self.assertTrue(self.host().ditto_wanted(self.frame(line("百变怪'普", 178, 136), line('Lv. 35', 245, 137))))   # split plate
+        self.assertFalse(self.host().ditto_wanted(self.frame(line('吼爆弹·普Lv.51', 178, 136, 115))))
+        self.assertFalse(self.host(on=False).ditto_wanted(ditto))
+        self.assertFalse(self.host(mode='fixed').ditto_wanted(ditto))
+
+    def test_a_horde_and_the_chat_are_never_a_ditto(self):
+        # 2026-11-14 16:29 47号道路: three 拉达 with the chat open - it was taken for a Ditto.
+        horde = [line("拉达'普 Lv. 31", 147, 90, 110), line("拉达'普 Lv. 32", 407, 90, 110), line("拉达'普 Lv. 31", 667, 90, 110)]
+        self.assertFalse(self.host().ditto_wanted(self.frame(*horde, line('收百变怪 私聊', 40, 600, 120))))
+        self.assertFalse(self.host().ditto_wanted(self.frame(*horde[:2], line("百变怪'普 Lv. 30", 667, 143, 115))))   # Ditto inside a horde
+        self.assertFalse(self.host().ditto_wanted(self.frame(line("大葱鸭'普飞 Lv. 34", 178, 136, 115), line('百变怪', 40, 600))))
+        self.assertFalse(self.host().ditto_wanted(self.frame(line("百变怪'普 Lv. 35", 640, 337, 150))))   # our own plate row
 
     def test_move_pp_reads_the_button(self):
         rect = app.battle_menu_rects(ESCAPE)[3]
