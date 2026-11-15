@@ -76,9 +76,10 @@ TOURNAMENT_CLOSE=(845,181,8,8)         # × of the 锦标赛报名 window (real 
 PVP_ICON=(837,740,16,16)               # 4th bottom-right icon (pokeball)
 # 「更换频道」 row of the book menu: the same place on every real screenshot (帆巴市 2026-10-18, 琉璃市 2026-10-23).
 SOCIAL_CHANGE_CHANNEL=(778,647,82,20)
-# New UI (game update 2026-10-31), bottom-right bar at y 735 (real screenshots 2026-11-14): ... 878 globe, 912 mail,
-# 946 gift, 990 ≡. The channel entry is not measured yet: try the globe, then ≡, and go only by the words that appear.
-NEW_UI_CHANNEL_ENTRIES=(('右下角地球图标',(870,727,16,16)),('右下角≡菜单',(982,727,16,16)))
+# New UI (game update 2026-10-31): the same 更换频道 window (same place: dropdown 438-586/290-314, 变更 357-414,
+# 取消 423-480 - real test 2026-11-15 21:01), but its entry moved: bottom-right bar, 3rd icon (people, x 731 y 735)
+# -> 社区 menu 好友/公会/更换频道 (y 624)/附近玩家/选择跟随. (The globe is 交易行; ≡ has no channel item.)
+NEW_UI_SOCIAL_ICON=(723,727,16,16)
 # Empty game-world spot left of the player. 2026-10-23 琉璃市: after the book icon was clicked to close its
 # menu, the icon kept keyboard focus, so the nurse's 空格 reopened the menu and opened 好友 instead.
 # A click on the world hands the keyboard back to the game.
@@ -899,68 +900,24 @@ class App:
  def hud_now(self):
   # Whole top line (not a 330 px crop: long map names push 「频道1」 out of it, 2026-11-13 沙漠的地下道).
   return hud_channel(' '.join(l['text'] for l in self.ocr_lines() if l['y']<40))
- def new_ui_switch(self,log):
-  """New UI channel change, by words only. Any step not found: close what was opened (ESC only while new
-  window text is on screen - ESC on the plain map opens the menu), skip, retry in 10 minutes. Never stops."""
-  def rect(l):return (int(l['x'])-8,int(l['y'])-4,int(l['w'])+16,int(l['h'])+8)
-  base={cn_norm(l['text']) for l in self.ocr_lines()}
-  def new_lines():return [l for l in self.ocr_lines() if l['y']>=40 and cn_norm(l['text']) not in base]
-  def close():
-   for _ in range(3):
-    if not new_lines():return
-    self.press(ESC_KEY);self.wait(.8)
-  def skip(why):
-   close();self.defocus_ui();self.next_switch=self.elapsed+600
-   self.say(f'  新界面换频道没成功（{why}），已关掉打开的窗口，10 分钟后再试，截图在 diagnostics/channel-switch')
-  old=self.hud_now()
-  if not old:return skip('左上角读不出当前频道')
-  rows=None
-  for name,icon in NEW_UI_CHANNEL_ENTRIES:
-   self.click(icon);self.wait(1);log(f'点{name}')
-   found=new_lines()
-   item=next((l for l in found if re.search(r'更换频道|切换频道|频道选择|选择频道',cn_norm(l['text']))),None)
-   if item and not re.match(r'频道[1-9]',cn_norm(item['text'])):
-    self.click(rect(item));self.wait(1);log(f'点「{item["text"]}」');found=new_lines()
-   rows=[l for l in found if re.match(r'频道\s*[1-9](?!\d)',cn_norm(l['text']))]
-   if rows:break
-   close()
-  if not rows:return skip('地球图标和≡菜单里都没看到频道列表')
-  options={}
-  for l in rows:
-   t=cn_norm(l['text']);n=int(re.match(r'频道([1-9])',t).group(1))
-   if n!=old and '当前' not in t:options[n]=l
-  if not options:return skip(f'列表里只有当前频道{old}')
-  ordered=sorted(options);target=next((c for c in ordered if c>old),ordered[0])
-  self.click(rect(options[target]));self.wait(.8);log(f'点「频道{target}」')
-  button=next((l for l in new_lines() if re.fullmatch(r'(变更|确定|确认|切换|更换|加入|进入)',cn_norm(l['text']))),None)
-  if button:self.click(rect(button));log(f'点「{button["text"]}」')
-  deadline=time.monotonic()+12
-  while time.monotonic()<deadline:
-   self.wait(1)
-   if self.hud_now()==target:break
-  else:return skip(f'点完后左上角还不是频道{target}')
-  if any(re.match(r'频道[1-9]',cn_norm(l['text'])) for l in new_lines()):self.press(ESC_KEY);self.wait(.8)   # list still open
-  self.defocus_ui();log(f'已切到频道{target}')
-  gap=channel_interval();self.next_switch=self.elapsed+gap;self.rest_until=time.monotonic()+random.randint(180,480)
-  self.say(f'已切到频道{target}，随机休息至倒计时结束；下次换频道在 {gap//60} 分钟后')
  def switch(self):
   try:return self._switch()
   except RuntimeError:
    # Whatever went wrong, the next attempt is 10 minutes away (2026-10-23: a failure at 23:05:37 was
    # retried 17 s later into the cooldown window).
    self.next_switch=self.elapsed+600;raise
- def open_channel_window(self,log=None):
+ def open_channel_window(self,log=None,icon=None):
   """Book icon -> 更换频道. Returns (score, dy) of the channel window."""
   def lines():return self.check_verification(self.capture()).get('lines',[])
   def find():
    for l in lines():
     if re.search(r'更换频道',cn_norm(l['text'])) and 560<=l['y']<=720:return (int(l['x'])-8,int(l['y'])-4,int(l['w'])+16,int(l['h'])+8)
    return None
-  self.click(SOCIAL_ICON);self.wait(.7)
-  if log:log('点右下角第3个图标（书本：好友/公会/更换频道）')
+  self.click(icon or SOCIAL_ICON);self.wait(.7)
+  if log:log('点右下角好友图标（社区：好友/公会/更换频道）' if icon else '点右下角第3个图标（书本：好友/公会/更换频道）')
   item=find()
   if not item:self.wait(.5);item=find()
-  if not item and screen_state.matches(self.capture(),'social_menu'):
+  if not item and not icon and screen_state.matches(self.capture(),'social_menu'):
    # 2026-10-23 琉璃市: OCR missed the menu text over the dark water 6 times in a row, the menu was open.
    item=SOCIAL_CHANGE_CHANNEL;self.say('  菜单文字没读到，但书本菜单确实开着：按固定位置点「更换频道」')
   if not item:raise RuntimeError('右下角菜单里没找到「更换频道」，已停止，截图在 diagnostics/channel-switch')
@@ -970,7 +927,7 @@ class App:
  def confirm_switched(self,target):
   """The HUD's channel digit can sit under the hotbar (long map names such as 琉璃市(水)(Sootopolis City)).
   Reopen the window: its dropdown names the current channel, and the cooldown row only exists right after a change."""
-  score,dy=self.open_channel_window()
+  score,dy=self.open_channel_window(icon=getattr(self,'channel_icon',None))
   if score<.8:raise RuntimeError(f'切换后重新打开换频道窗口失败（相似度 {score:.2f}），无法确认是否切到频道{target}，已停止')
   current=cn_norm(self.read(shifted(CHANNEL_DROPDOWN_READ,dy)));m=re.search(r'频道([1-9])',current)
   self.click(shifted(CHANNEL_CANCEL_BUTTON,dy));self.wait(.6);self.defocus_ui()
@@ -995,16 +952,13 @@ class App:
    return None,None
   log('当前画面')
   hud_text=self.read((0,0,330,30));hud_before=hud_channel(hud_text)
+  icon=None;self.channel_icon=None
   if new_game_ui({'lines':[{'y':10,'text':hud_text}]}) or not OLD_HUD_MARK.search(hud_text):
-   # Clicking the old icon position now opens the 孵蛋器 window (2026-10-31 01:30-02:09, five times),
-   # then the recovery walked the whole hospital route. Until the new entry is measured: no clicks.
-   # 2026-11-13 21:48-22:59 沙漠的地下道（DesertUnderpass）: the long map name pushed 「频道1」 out of
-   # the 330 px HUD crop, the new UI went unrecognised, the old icon was clicked 7 times and the window it
-   # opened blocked walking (90 s without encounters, 3 recoveries, stopped). Old positions are only
-   # clicked when the old 「Ch.」 HUD is actually seen.
-   return self.new_ui_switch(log)
+   icon=self.channel_icon=NEW_UI_SOCIAL_ICON;hud_before=hud_before or self.hud_now()   # whole line: no crop cut-off
+  # Old icon positions only with the old 「Ch.」 HUD: in the new UI they open the 孵蛋器 window (2026-10-31), and a long
+  # map name once hid 「频道1」 from the 330 px crop (2026-11-13 沙漠的地下道: old icon clicked 7 times). New UI: its own icon.
   # Positions verified on real screenshots 2026-10-18 18:14-18:19 (game window coordinates).
-  score,dy=self.open_channel_window(log)
+  score,dy=self.open_channel_window(log,icon)
   if score>=.8 and dy>5:
    # Cooldown layout: a change happened moments ago (e.g. confirmed late). Close it and wait for the next turn.
    self.click(shifted(CHANNEL_CANCEL_BUTTON,dy));self.wait(.6);self.defocus_ui()
@@ -1041,7 +995,7 @@ class App:
   deadline=time.monotonic()+10;how=None
   while True:
    hud=self.read((0,0,330,30))
-   if re.search(r'Ch\.?\s*'+str(target)+r'(?!\d)',hud):how=f'左上角已显示 Ch.{target}';break
+   if hud_channel(hud)==target or self.hud_now()==target:how=f'左上角已显示频道{target}';break
    if time.monotonic()>deadline:break
    self.wait(.8)
   if how:log(how);self.defocus_ui()
@@ -1127,6 +1081,12 @@ class App:
         self.say('遇到野生宝可梦（画面出现战斗窗口），进入战斗');state='battle';key_sent=time.monotonic();key_retry=True;last_combat_log=0;deadline=time.monotonic()+55;continue
        if time.monotonic()-walk_log>=30:
         walk_log=time.monotonic();self.say(f'  走路中：已走 {getattr(self,"_walk_i",0)} 步，{int(time.monotonic()-walk_since)} 秒没遇到怪')
+       test_flag=BASE/'测试换频道.txt'   # TEMP channel-switch test (2026-11-15): remove after it passes
+       if test_flag.exists():
+        test_flag.unlink(missing_ok=True);self.say('测试换频道：现在立刻换一次')
+        try:self.switch()
+        except RuntimeError as e:self.say(f'测试换频道：失败 - {e}')
+        walk_since=time.monotonic();deadline=time.monotonic()+45;continue
        if self.channel_run and self.elapsed>=self.next_switch:self.switch();walk_since=time.monotonic();deadline=time.monotonic()+45;continue
        if time.monotonic()-walk_since>WALK_NO_ENCOUNTER:
         raise RuntimeError(f'走路单遇：来回走了{WALK_NO_ENCOUNTER}秒都没遇到怪，可能不在草丛里或被挡住了，已停止')

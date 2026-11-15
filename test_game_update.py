@@ -26,49 +26,26 @@ class GameUpdateTests(unittest.TestCase):
         old = {'lines': [{'y': 12, 'text': '琉璃市（水）（SootopolisCity）Ch.2E6'}]}
         self.assertTrue(app.new_game_ui(new)); self.assertFalse(app.new_game_ui(old))
 
-    def test_new_ui_never_clicks_the_old_icon(self):
-        for hud in ('琉璃市（水）（SootopolisCity）城镇・频道', '沙漠的地下道（DesertUnd…'):   # 2026-11-13: crop cut 「频道1」
+    def test_new_ui_uses_the_people_icon_and_the_old_window_flow(self):
+        for hud in ('47号道路(Route47) 道路・頻道1', '沙漠的地下道（DesertUnd…'):   # 2026-11-13: crop cut 「频道1」
             a = self.host(); a.elapsed = 100; a.next_switch = 0; a.click = Mock()
             a.capture = Mock(return_value=Image.new('RGB', (1024, 768))); a.switch_snapshot = Mock()
-            a.read = Mock(return_value=hud); a.new_ui_switch = Mock()
-            a._switch()
-            a.new_ui_switch.assert_called_once()
+            a.read = Mock(return_value=hud); a.hud_now = Mock(return_value=1)
+            a.open_channel_window = Mock(return_value=(0.1, 0))
+            with self.assertRaises(RuntimeError):            # no window in this fake: the attempt stops
+                a._switch()
+            self.assertEqual(a.open_channel_window.call_args[0][1], app.NEW_UI_SOCIAL_ICON)
             self.assertNotIn(app.SOCIAL_ICON, [c[0][0] for c in a.click.call_args_list])
 
-    HUD = {'text': '47号道路(Route47) 道路・频道1', 'lines': [{'text': '47号道路(Route47) 道路・频道1', 'x': 14, 'y': 8, 'w': 260, 'h': 18}]}
-
-    @staticmethod
-    def L(text, x, y, w=60, h=16):
-        return {'text': text, 'x': x, 'y': y, 'w': w, 'h': h}
-
-    def switch_host(self, frames):
-        a = self.host(); a.elapsed = 100; a.next_switch = 0; a.wait = Mock(); a.defocus_ui = Mock()
+    def test_people_menu_item_is_found_where_the_new_ui_shows_it(self):
+        # real 21:01: 社区 menu, 更换频道 at (665,617) - OCR gave 繁体 「更换頻道」
+        a = self.host(); a.wait = Mock(); a.click = Mock()
         a.capture = Mock(return_value=Image.new('RGB', (1024, 768)))
-        a.check_verification = Mock(side_effect=frames)
-        return a
-
-    def with_hud(self, *lines):
-        return {'text': '', 'lines': self.HUD['lines'] + list(lines)}
-
-    def test_new_ui_switch_goes_by_words(self):
-        rows = [self.L('频道1 (当前)', 450, 300), self.L('频道2', 450, 330), self.L('频道3', 450, 360)]
-        hud2 = {'text': '', 'lines': [{'text': '47号道路(Route47) 道路・频道2', 'x': 14, 'y': 8, 'w': 260, 'h': 18}]}
-        frames = [self.HUD, self.HUD, self.with_hud(*rows), self.with_hud(*rows, self.L('确定', 500, 420)), hud2, hud2]
-        a = self.switch_host(frames); log = Mock()
-        a.new_ui_switch(log)
+        menu = {'text': '社区 好友 公会 更换頻道', 'lines': [{'text': '更换頻道', 'x': 665, 'y': 617, 'w': 60, 'h': 16}]}
+        a.check_verification = Mock(return_value=menu)
+        a.open_channel_window(icon=app.NEW_UI_SOCIAL_ICON)
         clicks = [c[0][0] for c in a.click.call_args_list]
-        self.assertEqual(clicks[0], app.NEW_UI_CHANNEL_ENTRIES[0][1])         # globe
-        self.assertEqual(clicks[1][1], 326)                                   # 频道2 row
-        self.assertEqual(clicks[2][1], 416)                                   # 确定
-        self.assertGreater(a.next_switch, 100 + 2000); a.press.assert_not_called()
-
-    def test_new_ui_switch_without_a_list_skips_and_closes_only_what_opened(self):
-        other = self.with_hud(self.L('孵蛋器', 400, 300))
-        frames = [self.HUD, self.HUD, other, other, self.HUD, self.HUD, self.HUD, self.HUD, self.HUD]   # base, hud, globe opened 孵蛋器, ESC, closed, ≡ nothing
-        a = self.switch_host(frames)
-        a.new_ui_switch(Mock())                                               # no exception: hunting goes on
-        self.assertEqual([c[0][0] for c in a.press.call_args_list], [app.ESC_KEY])   # once, for the opened window
-        self.assertEqual(a.next_switch, 700)
+        self.assertEqual(clicks[0], app.NEW_UI_SOCIAL_ICON); self.assertEqual(clicks[1][1], 613)
 
     def test_old_hud_mark_ignores_english_map_names(self):
         self.assertTrue(app.OLD_HUD_MARK.search('帆巴市(地) Ch. 2'))
