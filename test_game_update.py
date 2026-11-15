@@ -16,6 +16,11 @@ class GameUpdateTests(unittest.TestCase):
         self.assertEqual(app.hud_channel('琉璃市（水）（SootopolisCity）Ch.2E6$18,255,355'), 2)
         self.assertEqual(app.hud_channel('琉璃市（水）（SootopolisCity）城镇・频道1'), 1)
 
+    def test_hud_channel_reads_the_traditional_ocr(self):
+        # 2026-11-15: OCR gave 「頻道1」 in 48 of 62 frames; all four new-UI changes failed at the first step
+        self.assertEqual(app.hud_channel('47号道路（Route47）道路・頻道1※周六02:24'), 1)
+        self.assertEqual(app.hud_channel('47号道路（Route47）道路。频道3ご周六'), 3)
+
     def test_new_ui_is_recognised_from_the_hud_line(self):
         new = {'lines': [{'y': 12, 'text': '琉璃市（水）（SootopolisCity）城镇・频道1'}]}
         old = {'lines': [{'y': 12, 'text': '琉璃市（水）（SootopolisCity）Ch.2E6'}]}

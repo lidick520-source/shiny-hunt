@@ -179,14 +179,16 @@ def shifted(rect,dy):
  return (rect[0],rect[1]+dy)+tuple(rect[2:])
 def hud_channel(text):
  # Old HUD (until 2026-10-30): 「Ch.2」. Game update 2026-10-31: 「城镇 · 频道1」.
- m=re.search(r'(?:Ch\.?|频道)\s*([1-9])(?!\d)',str(text or ''));return int(m.group(1)) if m else None
+ # cn_norm: OCR reads the HUD as 繁体 「頻道1」 most of the time (2026-11-15: 48 of 62 frames) - every new-UI
+ # channel change failed at 「左上角读不出当前频道」.
+ m=re.search(r'(?:Ch\.?|频道)([1-9])(?!\d)',cn_norm(text));return int(m.group(1)) if m else None
 SERVER_SHUTDOWN=re.compile(r'服务器关闭|关服说明')
 OLD_HUD_MARK=re.compile(r'Ch\.|Ch(?![A-Za-z])')   # old HUD 「Ch.2」; not English map names such as Chargestone
 def new_game_ui(data):
  # The 2026-10-31 PokeMMO update moved the HUD and the bottom-right icon bar: the HUD line reads
  # 「城镇·频道1」 instead of 「Ch.1」. The old channel-menu positions do not apply there.
  top=' '.join(l['text'] for l in data.get('lines',[]) if l.get('y',999)<40)
- return bool(re.search(r'城镇|频道',top)) and not re.search(r'Ch\.?\s*\d',top)
+ top=cn_norm(top);return bool(re.search(r'城镇|频道',top)) and not re.search(r'Ch\.?\d',top)
 _CN_VARIANTS=str.maketrans({'換':'换','頻':'频','當':'当','變':'变','選':'选'})
 def cn_norm(text):
  return re.sub(r'\s+','',str(text or '')).translate(_CN_VARIANTS)
@@ -546,7 +548,7 @@ class App:
    self.diagnostic(im,data,'ditto-moves');raise RuntimeError(f'抓百变：技能菜单里一个字都没读到，不敢乱点{name}，已停止，截图在 diagnostics/latest-screen.png')
   pp=move_pp(lines,target)
   if pp==0:raise RuntimeError(f'抓百变：{name} 的 PP 用完了，已停止；回中心补满 PP 再开始')
-  if slot==3 and pp is not None:self.spore_pp=pp-1   # what is left after this use
+  if pp is not None:setattr(self,'spore_pp' if slot==3 else 'swipe_pp',pp-1)   # what is left after this use
   self.diagnostic(im,data,'ditto-moves')
   self.click(target);self.say(f'  抓百变：{slot}号技能「{name}」（{how}{"" if pp is None else f"，剩 {pp} PP"}）')
   return target
@@ -607,8 +609,9 @@ class App:
      if back=='battle':   # the battle menu came back: that ball did not catch it after all
       self.say('  抓百变：战斗菜单又出现了，这个球其实没抓住，继续');escape=button;balls+=1;continue
      self.ditto_caught=getattr(self,'ditto_caught',0)+1;self.say(f'抓到百变怪了！这次开始后共抓到 {self.ditto_caught} 只，继续走')
-     pp=getattr(self,'spore_pp',None)
-     if pp is not None and pp<=LEPPA_AT:self.use_leppa(pp)
+     for slot,attr in ((3,'spore_pp'),(1,'swipe_pp')):   # 20:47: 点到为止 ran out after 64 Dittos too
+      pp=getattr(self,attr,None)
+      if pp is not None and pp<=LEPPA_AT:self.use_leppa(pp,slot)
     else:self.say(f'  抓百变：{what}之后战斗就结束了，没看到捕获提示，继续走')
     self.mode='刷怪';return
    escape=button
@@ -648,14 +651,14 @@ class App:
     if re.search(pattern,cn_norm(l['text'])):return l,im,data
    self.wait(.5)
   return None,im,data
- def use_leppa(self,pp):
+ def use_leppa(self,pp,slot=3):
   """On the map after a catch, fill 蘑菇孢子 up with 苹野果 in one go (user 19:10 / 00:09).
   Real screens: hotbar 9 -> 「对哪只宝可梦使用?」 (图图犬'普) -> 「回复哪个技能?」 (蘑菇孢子 / PP: 4 / 24) -> box 「苹野果(PP果)」
   「要对图图犬'普使用多少苹野果(PP果)?」 [-] [1] [+] [最大] / 「使用」 「取消」 (00:00: - 423, 1 488, + 552, 最大 593 at y 398;
   使用 512,457). Each berry +10, so the count is set with + to what fills it; then a toast 「对图图犬'普使用了2x 苹野果(PP果).」
   stays a few seconds - it is not a window (00:00:36 it was taken for one and the run stopped).
   Every step is checked by its words; screenshots go to diagnostics/leppa."""
-  self.mode='用苹野果';step=[0]
+  self.mode='用苹野果';step=[0];name,pattern=DITTO_MOVES[slot];attr='spore_pp' if slot==3 else 'swipe_pp'
   def snap(im):step[0]+=1;self.leppa_snapshot(im,step[0])
   def box(l):return (int(l['x'])-30,int(l['y'])-6,int(l['w'])+60,int(l['h'])+12)
   def window_lines(data):   # lines of a real window; the 「使用了」 toast is not one
@@ -674,21 +677,21 @@ class App:
   who,im,data=self.find_text(r'图图犬');snap(im)
   if not who:fail('按9后没出现「对哪只宝可梦使用」',im,data)
   self.click(box(who));self.wait(1)
-  move,im,data=self.find_text(r'蘑菇|孢子');snap(im)
+  move,im,data=self.find_text(pattern);snap(im)
   if not move:fail('选了图图犬后没出现技能列表',im,data)
-  cur=None;top=24
+  cur=None;top=24 if slot==3 else 64
   for l in data.get('lines',[]):   # 「PP: 4 / 24」 right under the name, inside the same button
    m=re.search(r'PP:?(\d+)/(\d+)',cn_norm(l['text']),re.I)
    if m and abs(l['x']-move['x'])<=40 and 0<l['y']-move['y']<=40:cur,top=int(m.group(1)),int(m.group(2))
   if cur is None:cur=pp
   if cur>=top:
-   close();self.spore_pp=cur;self.mode='刷怪';self.say('  蘑菇孢子本来就是满的，继续走');return
+   close();setattr(self,attr,cur);self.mode='刷怪';self.say(f'  {name}本来就是满的，继续走');return
   need=-(-(top-cur)//10)
-  self.say(f'  蘑菇孢子 {cur}/{top} PP：用 {need} 个苹野果补满')
+  self.say(f'  {name} {cur}/{top} PP：用 {need} 个苹野果补满')
   self.click(box(move));self.wait(1)
   origin=self.ensure();self.move_event((origin[0]+150,origin[1]+700));self.wait(.6)   # the move's tooltip covers the box
   use,im,data=self.find_text(r'^使用$');snap(im)
-  if not use:fail('选了蘑菇孢子后没出现「使用」按钮',im,data)
+  if not use:fail(f'选了{name}后没出现「使用」按钮',im,data)
   most=next((l for l in data.get('lines',[]) if cn_norm(l['text'])=='最大'),None)
   if need>1:
    if not most:fail('没找到数量框（「最大」按钮）',im,data)
@@ -704,8 +707,8 @@ class App:
   if done:
    m=re.search(r'使用了(\d+)',cn_norm(done['text']));used=int(m.group(1)) if m else need
   if not close():im=self.capture();fail('用完后窗口关不掉',im,self.check_verification(im))
-  self.spore_pp=min(top,cur+10*used);self.mode='刷怪'
-  self.say(f'  用了 {used} 个苹野果，蘑菇孢子 {cur} → {self.spore_pp}/{top} PP，继续走'+('' if done else '（没看到使用提示，下次开技能菜单会读到真实PP）'))
+  setattr(self,attr,min(top,cur+10*used));self.mode='刷怪'
+  self.say(f'  用了 {used} 个苹野果，{name} {cur} → {getattr(self,attr)}/{top} PP，继续走'+('' if done else '（没看到使用提示，下次开技能菜单会读到真实PP）'))
  def caught_snapshot(self,im,label):
   try:
    folder=BASE/'diagnostics'/'ditto-caught';folder.mkdir(parents=True,exist_ok=True)

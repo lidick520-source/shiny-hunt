@@ -136,7 +136,7 @@ class DittoTests(unittest.TestCase):
             return ('move', slot)
         a.ditto_move = Mock(side_effect=move)
         a.catch_ditto(ESCAPE)
-        a.use_leppa.assert_called_once_with(3)
+        a.use_leppa.assert_called_once_with(3, 3)
         a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, [], {}), ('map', None, [], {})])
         a.use_leppa = Mock(); a.spore_pp = 12
         a.catch_ditto(ESCAPE)
@@ -160,6 +160,27 @@ class DittoTests(unittest.TestCase):
                           line('最大', 580, 391, 26), line('使用', 498, 450, 28), line('取消', 498, 498, 28)]}
     toast = {'text': "对图图犬'普使用了2x 苹野果(PP果).", 'lines': [line("对图图犬'普使用了2x 苹野果(PP果).", 400, 640, 230)]}
     plain = {'text': '47号道路（Route47）', 'lines': []}
+
+    def test_low_false_swipe_pp_after_a_catch_uses_leppa_too(self):
+        # 20:47: 点到为止 ran out (64 PP) after 64 Dittos
+        a = self.catch_host([('menu', ESCAPE, [], {}), ('menu', ESCAPE, [], {}), ('map', None, [], {})])
+        a.use_leppa = Mock()
+        def move(slot, esc):
+            setattr(a, 'swipe_pp' if slot == 1 else 'spore_pp', 2 if slot == 1 else 20)
+            return ('move', slot)
+        a.ditto_move = Mock(side_effect=move)
+        a.catch_ditto(ESCAPE)
+        a.use_leppa.assert_called_once_with(2, 1)
+
+    def test_leppa_fills_false_swipe_to_64(self):
+        swipe = {'text': '回复哪个技能? 点到为止 PP: 3 / 64', 'lines': [line('回复哪个技能?', 352, 330, 100), line('点到为止', 356, 375, 60),
+                                                                 line('PP: 3 / 64', 356, 395, 80), line('B 取消', 800, 644, 60)]}
+        toast = {'text': '', 'lines': [line("对图图犬'普使用了7x 苹野果(PP果).", 400, 640, 230)]}
+        a = self.leppa_host([self.party, swipe, self.count_box(1), self.count_box(7), toast, self.plain])
+        a.ensure = Mock(return_value=(0, 0)); a.move_event = Mock()
+        a.use_leppa(3, 1)
+        self.assertEqual(a.click.call_count, 2 + 6 + 1)                     # 图图犬, 点到为止, + x6, 使用
+        self.assertEqual(a.swipe_pp, 64)
 
     def test_leppa_sets_the_count_and_uses_once(self):
         a = self.leppa_host([self.party, self.moves(4), self.count_box(1), self.count_box(2), self.toast, self.toast, self.plain])
