@@ -47,6 +47,35 @@ class GameUpdateTests(unittest.TestCase):
         clicks = [c[0][0] for c in a.click.call_args_list]
         self.assertEqual(clicks[0], app.NEW_UI_SOCIAL_ICON); self.assertEqual(clicks[1][1], 613)
 
+    def test_menu_text_late_is_waited_for(self):
+        # 2026-11-16 10:39: the 社区 menu was open, its text came too late; it then blocked walking for 4 minutes
+        a = self.host(); a.wait = Mock(); a.click = Mock()
+        a.capture = Mock(return_value=Image.new('RGB', (1024, 768)))
+        empty = {'text': '', 'lines': []}
+        menu = {'text': '社区 好友 公会 更换频道', 'lines': [{'text': '更换频道', 'x': 665, 'y': 617, 'w': 60, 'h': 16}]}
+        a.check_verification = Mock(side_effect=[empty, empty, menu])
+        a.open_channel_window(icon=app.NEW_UI_SOCIAL_ICON)
+        self.assertEqual(a.click.call_args_list[1][0][0][1], 613)
+
+    def test_menu_words_without_the_row_use_the_fixed_row(self):
+        a = self.host(); a.wait = Mock(); a.click = Mock()
+        a.capture = Mock(return_value=Image.new('RGB', (1024, 768)))
+        words = {'text': '社区 好友 公会 附近玩家', 'lines': [{'text': w, 'x': 665, 'y': y, 'w': 30, 'h': 16}
+                                                        for w, y in (('社区', 528), ('好友', 555), ('公会', 586), ('附近玩家', 648))]}
+        a.check_verification = Mock(return_value=words)
+        a.open_channel_window(icon=app.NEW_UI_SOCIAL_ICON)
+        self.assertEqual(a.click.call_args_list[1][0][0], app.NEW_UI_CHANGE_CHANNEL)
+
+    def test_nothing_found_closes_the_menu_before_giving_up(self):
+        a = self.host(); a.wait = Mock(); a.click = Mock()
+        a.capture = Mock(return_value=Image.new('RGB', (1024, 768)))
+        empty = {'text': '', 'lines': []}
+        a.check_verification = Mock(side_effect=[empty] * 5 + [{'text': '好友 公会', 'lines': []}, empty])
+        a.close_social_menu = Mock()
+        with self.assertRaisesRegex(RuntimeError, '更换频道'):
+            a.open_channel_window(icon=app.NEW_UI_SOCIAL_ICON)
+        a.close_social_menu.assert_called_once()
+
     def test_old_hud_mark_ignores_english_map_names(self):
         self.assertTrue(app.OLD_HUD_MARK.search('帆巴市(地) Ch. 2'))
         self.assertTrue(app.OLD_HUD_MARK.search('Ch.'))

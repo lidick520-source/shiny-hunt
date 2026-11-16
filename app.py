@@ -80,6 +80,8 @@ SOCIAL_CHANGE_CHANNEL=(778,647,82,20)
 # 取消 423-480 - real test 2026-11-15 21:01), but its entry moved: bottom-right bar, 3rd icon (people, x 731 y 735)
 # -> 社区 menu 好友/公会/更换频道 (y 624)/附近玩家/选择跟随. (The globe is 交易行; ≡ has no channel item.)
 NEW_UI_SOCIAL_ICON=(723,727,16,16)
+NEW_UI_CHANGE_CHANNEL=(640,613,180,22)   # 社区 menu row 「更换频道」 (real 2026-11-16 10:39: text 665-725 / 617-631)
+SOCIAL_MENU_WORDS=re.compile(r'附近玩家|选择跟随|社区')   # the open 社区 menu (2026-11-16 10:39-10:43 it blocked walking 4 min)
 # Empty game-world spot left of the player. 2026-10-23 琉璃市: after the book icon was clicked to close its
 # menu, the icon kept keyboard focus, so the nurse's 空格 reopened the menu and opened 好友 instead.
 # A click on the world hands the keyboard back to the game.
@@ -916,14 +918,28 @@ class App:
   self.click(icon or SOCIAL_ICON);self.wait(.7)
   if log:log('点右下角好友图标（社区：好友/公会/更换频道）' if icon else '点右下角第3个图标（书本：好友/公会/更换频道）')
   item=find()
-  if not item:self.wait(.5);item=find()
+  for _ in range(3 if icon else 1):   # 2026-11-16 10:39: the new-UI menu was open but its text came late (1.2 s)
+   if item:break
+   self.wait(.6);item=find()
+  if not item and icon:
+   text=cn_norm(' '.join(l['text'] for l in lines()))
+   if SOCIAL_MENU_WORDS.search(text) or re.search(r'好友.*公会|公会.*好友',text):
+    item=NEW_UI_CHANGE_CHANNEL;self.say('  「更换频道」这行没读到，但社区菜单确实开着：按固定位置点它')
   if not item and not icon and screen_state.matches(self.capture(),'social_menu'):
    # 2026-10-23 琉璃市: OCR missed the menu text over the dark water 6 times in a row, the menu was open.
    item=SOCIAL_CHANGE_CHANNEL;self.say('  菜单文字没读到，但书本菜单确实开着：按固定位置点「更换频道」')
-  if not item:raise RuntimeError('右下角菜单里没找到「更换频道」，已停止，截图在 diagnostics/channel-switch')
+  if not item:
+   if icon:self.close_social_menu()
+   raise RuntimeError('右下角菜单里没找到「更换频道」，已停止，截图在 diagnostics/channel-switch')
   self.click(item);self.wait(1)
   if log:log('点「更换频道」')
   return channel_window_match(self.capture())
+ def close_social_menu(self):
+  # Only ESC while the menu's own words are on screen (ESC on the plain map opens the game menu).
+  for _ in range(2):
+   text=cn_norm(self.check_verification(self.capture())['text'])
+   if not (SOCIAL_MENU_WORDS.search(text) or re.search(r'好友.*公会',text)):return
+   self.press(ESC_KEY);self.wait(.8)
  def confirm_switched(self,target):
   """The HUD's channel digit can sit under the hotbar (long map names such as 琉璃市(水)(Sootopolis City)).
   Reopen the window: its dropdown names the current channel, and the cooldown row only exists right after a change."""
@@ -1071,6 +1087,8 @@ class App:
        if re.search(r'香水用|使用下一个',data['text']):
         # 「香水用完了. 使用下一个?」 (PokeLoop template 1766587015): answer 是 with space, keep walking.
         self.say('  香水用完了，按空格用下一瓶');self.press(0x20);self.wait(1.5);walk_since=time.monotonic();continue
+       if SOCIAL_MENU_WORDS.search(cn_norm(data['text'])) and re.search(r'好友',cn_norm(data['text'])):
+        self.say('  社区菜单开着（会挡住走路），按ESC关掉');self.press(ESC_KEY);self.wait(.8);walk_since=time.monotonic();continue
        if getattr(self,'ditto_catch',False) and info_page(data):
         self.say('  精灵信息页还开着，按ESC关闭');self.caught_snapshot(im,'late-page');self.press(ESC_KEY);self.wait(1.2);walk_since=time.monotonic();continue
        ui=self.blocking_ui(im,data)
@@ -1081,12 +1099,6 @@ class App:
         self.say('遇到野生宝可梦（画面出现战斗窗口），进入战斗');state='battle';key_sent=time.monotonic();key_retry=True;last_combat_log=0;deadline=time.monotonic()+55;continue
        if time.monotonic()-walk_log>=30:
         walk_log=time.monotonic();self.say(f'  走路中：已走 {getattr(self,"_walk_i",0)} 步，{int(time.monotonic()-walk_since)} 秒没遇到怪')
-       test_flag=BASE/'测试换频道.txt'   # TEMP channel-switch test (2026-11-15): remove after it passes
-       if test_flag.exists():
-        test_flag.unlink(missing_ok=True);self.say('测试换频道：现在立刻换一次')
-        try:self.switch()
-        except RuntimeError as e:self.say(f'测试换频道：失败 - {e}')
-        walk_since=time.monotonic();deadline=time.monotonic()+45;continue
        if self.channel_run and self.elapsed>=self.next_switch:self.switch();walk_since=time.monotonic();deadline=time.monotonic()+45;continue
        if time.monotonic()-walk_since>WALK_NO_ENCOUNTER:
         raise RuntimeError(f'走路单遇：来回走了{WALK_NO_ENCOUNTER}秒都没遇到怪，可能不在草丛里或被挡住了，已停止')
