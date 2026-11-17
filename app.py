@@ -156,7 +156,7 @@ def move_pp(lines,rect):
 def channel_interval():
  # User 2026-10-18: change channel at a random moment, every 40-50 minutes (not a fixed 50).
  return random.randint(2400,3000)
-NO_RECOVERY=('抓百变','香水没开','关服','闪光','验证','手动停止','F8','已关闭','缺少屏幕录制','尚未授予','窗口为','原生输入','六次遭遇完成','轻飘飘全自动','未确认是','路线测试','游戏已关闭','切不回前台','没找到 PokeMMO','自动恢复')
+NO_RECOVERY=('窗口变矮','抓百变','香水没开','关服','闪光','验证','手动停止','F8','已关闭','缺少屏幕录制','尚未授予','窗口为','原生输入','六次遭遇完成','轻飘飘全自动','未确认是','路线测试','游戏已关闭','切不回前台','没找到 PokeMMO','自动恢复')
 def CHANNEL_ROW(n):return (446,338+27*(n-1)-9,132,18)   # 频道1 y=338, step 27 (real screenshots)
 CHANNEL_WINDOW_BOX=(424,322,600,488)   # checkbox + 变更/取消, cut from the real screenshot (assets/channel_window.png)
 # 2026-10-23 琉璃市: right after a change the window shows a 「下次切换: N秒后」 row on top and everything

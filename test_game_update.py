@@ -76,6 +76,22 @@ class GameUpdateTests(unittest.TestCase):
             a.open_channel_window(icon=app.NEW_UI_SOCIAL_ICON)
         a.close_social_menu.assert_called_once()
 
+    def test_title_bar_in_the_capture_is_recognised(self):
+        # 2026-11-17 15:27: window only 768 high, the title bar was taken for a dialog bubble
+        import mac_backend
+        bar = Image.new('RGB', (1024, 768), (60, 70, 50))
+        bar.paste((236, 236, 236), (0, 0, 1024, 28))
+        for x in (20, 40, 60):
+            bar.paste((236, 127, 116), (x - 6, 7, x + 6, 19))
+        self.assertTrue(mac_backend.has_titlebar(bar))
+        white_dialog = Image.new('RGB', (1024, 768), (60, 70, 50)); white_dialog.paste((250, 250, 250), (0, 0, 1024, 72))
+        self.assertFalse(mac_backend.has_titlebar(white_dialog))           # a real white bubble has no red dot
+        self.assertFalse(mac_backend.has_titlebar(Image.new('RGB', (1024, 768), (60, 70, 50))))
+
+    def test_short_window_stops_without_recovery(self):
+        a = self.host(); a.recoveries = []; a.protection = None
+        self.assertFalse(a.recoverable(RuntimeError('游戏窗口变矮了：macOS 标题栏挡住了画面最上面一条')))
+
     def test_old_hud_mark_ignores_english_map_names(self):
         self.assertTrue(app.OLD_HUD_MARK.search('帆巴市(地) Ch. 2'))
         self.assertTrue(app.OLD_HUD_MARK.search('Ch.'))

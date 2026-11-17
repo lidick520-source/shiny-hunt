@@ -100,6 +100,36 @@ def geometry(h):
     return (round(b['X']), round(b['Y']) + top, 1024, 768)
 
 
+TITLEBAR_H = 28
+
+
+def has_titlebar(im):
+    """The macOS title bar inside the 768-high capture: light grey across the top with the red close dot.
+    2026-11-17 15:27: the PokeMMO window was only 768 high, so its title bar sat in the capture, the game was pushed
+    down and the white bar was taken for a dialog bubble - space was pressed again and again on a plain map.
+    Real frames: that one 98% light top / red dot (236,127,116); normal frames 3-5% / no red dot."""
+    import numpy as np
+    a = np.asarray(im.crop((90, 2, 1000, 24)).convert('L'))
+    r, g, _ = im.convert('RGB').getpixel((20, 13))
+    return float((a > 200).mean()) > 0.8 and r > 200 and g < 160
+
+
+@pooled
+def grow_window(h):
+    """Make the game window 1024 x (768 + title bar) through Accessibility. True when the size was accepted."""
+    try:
+        import ApplicationServices as AS
+        w = info(h)
+        app = AS.AXUIElementCreateApplication(int(w['kCGWindowOwnerPID']))
+        err, wins = AS.AXUIElementCopyAttributeValue(app, 'AXWindows', None)
+        if err or not wins:
+            return False
+        size = AS.AXValueCreate(AS.kAXValueCGSizeType, Q.CGSizeMake(1024, 768 + TITLEBAR_H))
+        return AS.AXUIElementSetAttributeValue(wins[0], 'AXSize', size) == 0
+    except Exception:
+        return False
+
+
 class Backend:
     KEYMAP = {0x1B: 53, 0x33: 20, 0x34: 21, 0x35: 23, 0x36: 22, 0x39: 25, 0x20: 49, 0x57: 13, 0x41: 0, 0x53: 1, 0x44: 2, 0x28: 125, 0x0D: 36, 0x24: 115}
 
@@ -230,6 +260,19 @@ class Backend:
 
     @pooled
     def capture(self, h):
+        im, top = self._capture(h)
+        if top < 20 and has_titlebar(im):
+            if grow_window(h):
+                time.sleep(.8)
+                im, top = self._capture(h)
+                if not (top < 20 and has_titlebar(im)):
+                    return im
+            raise RuntimeError('游戏窗口变矮了：macOS 标题栏挡住了画面最上面一条。请把 PokeMMO 窗口拉高一点'
+                               '（内容区 1024×768），再按开始')
+        return im
+
+    @pooled
+    def _capture(self, h):
         if not Q.CGPreflightScreenCaptureAccess():
             raise RuntimeError('尚未授予屏幕录制权限')
         rect = geometry(h)
@@ -258,7 +301,7 @@ class Backend:
             raise RuntimeError('截图尺寸不符，拒绝继续操作')
         if geometry(h) != rect:
             raise RuntimeError('截图期间窗口移动，请重新预览')
-        return im.crop((0, full_h - 768, 1024, full_h))
+        return im.crop((0, full_h - 768, 1024, full_h)), full_h - 768
 
 
 backend = Backend()
